@@ -122,16 +122,6 @@ This method uses the `uv` package manager to install the server as a proper Pyth
     ```
     This will install the server in editable mode and all its dependencies.
 
-4.  **Prepare the `snakebase` directory:**
-    Follow the instructions in the [Developer Guide](Developer_Guide.md#setting-up-the-snakebase-directory) to set up the `snakebase` directory with the required wrappers and workflows.
-
-5.  **Run the Server:**
-    Once installed, you can run the server using the `snakemake-mcp-server` command:
-    ```bash
-    # Set the SNAKEBASE_DIR environment variable if your snakebase is not in the default location
-    # export SNAKEBASE_DIR=/path/to/your/snakebase
-    snakemake-mcp-server run --host 127.0.0.1 --port 8081
-
 ## Run the Server
     Navigate to the `snakemake-mcp-server` directory and start the server using the `click` CLI:
 
@@ -165,7 +155,7 @@ async def main():
                     "params": {},
                     "threads": 1,
                     # Optional: Specify a conda environment for the wrapper
-                    "conda_env": "/path/to/your/conda_env.yaml",
+                    "conda_env": "the content of conda_env.yaml",
                     # Optional: Run with shadow mode
                     "shadow": "minimal",
                 }
