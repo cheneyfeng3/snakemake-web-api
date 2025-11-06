@@ -5,8 +5,7 @@ import tempfile
 import gzip
 from fastmcp import Client
 
-# Import the SnakemakeResponse model to check type
-from snakemake_mcp_server.fastapi_app import SnakemakeResponse
+from snakemake_mcp_server.utils import extract_response_status, extract_response_exit_code
 
 @pytest.mark.asyncio
 async def test_megahit_wrapper(http_client: Client, wrappers_path):
@@ -42,14 +41,11 @@ async def test_megahit_wrapper(http_client: Client, wrappers_path):
         )
 
         # The new FastAPI-first approach returns a structured SnakemakeResponse model
-        # Determine the correct access method based on the type
-        if hasattr(result.data, 'status'):  # If it's the new SnakemakeResponse model
-            assert result.data.status == "success"
-            assert result.data.exit_code == 0
-        else:
-            # For backward compatibility if it's still a dict
-            assert result.data["status"] == "success"
-            assert result.data["exit_code"] == 0
+        status = extract_response_status(result.data)
+        exit_code = extract_response_exit_code(result.data)
+        
+        assert status == "success"
+        assert exit_code == 0
         
         assert os.path.exists(output_file)
         assert os.path.exists(benchmark_file)

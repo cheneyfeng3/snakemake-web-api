@@ -7,8 +7,7 @@ from pathlib import Path
 from fastmcp import Client
 import yaml
 
-# Import the SnakemakeResponse model to check type
-from snakemake_mcp_server.fastapi_app import SnakemakeResponse
+from snakemake_mcp_server.utils import extract_response_status
 
 @pytest.fixture(scope="function")
 def dummy_workflow_setup(workflows_dir):
@@ -80,12 +79,7 @@ async def test_run_snakemake_workflow_basic(http_client: Client, dummy_workflow_
     )
 
     # The new FastAPI-first approach returns a structured SnakemakeResponse model
-    # Determine the correct access method based on the type
-    if hasattr(result.data, 'status'):  # If it's the new SnakemakeResponse model
-        status = result.data.status
-    else:
-        # For backward compatibility if it's still a dict
-        status = result.data.get('status') if isinstance(result.data, dict) else getattr(result.data, 'status', None)
+    status = extract_response_status(result.data)
     
     assert status == 'success'
     assert os.path.exists(output_file)
@@ -114,12 +108,7 @@ async def test_run_snakemake_workflow_with_params(http_client: Client, dummy_wor
     )
 
     # The new FastAPI-first approach returns a structured SnakemakeResponse model
-    # Determine the correct access method based on the type
-    if hasattr(result.data, 'status'):  # If it's the new SnakemakeResponse model
-        status = result.data.status
-    else:
-        # For backward compatibility if it's still a dict
-        status = result.data.get('status') if isinstance(result.data, dict) else getattr(result.data, 'status', None)
+    status = extract_response_status(result.data)
     
     assert status == 'success'
     assert os.path.exists(output_file)
@@ -142,11 +131,6 @@ async def test_lint_snakemake_workflow_template(http_client: Client):
     )
 
     # The new FastAPI-first approach returns a structured SnakemakeResponse model
-    # Determine the correct access method based on the type
-    if hasattr(result.data, 'status'):  # If it's the new SnakemakeResponse model
-        status = result.data.status
-    else:
-        # For backward compatibility if it's still a dict
-        status = result.data.get('status') if isinstance(result.data, dict) else getattr(result.data, 'status', None)
+    status = extract_response_status(result.data)
     
     assert status == 'success'

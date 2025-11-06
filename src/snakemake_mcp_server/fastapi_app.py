@@ -67,10 +67,6 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
         version="1.0.0"
     )
     
-    # Store workflows_dir in a way that's accessible to the endpoints
-    app.state.workflows_dir = workflows_dir
-    app.state.wrappers_path = wrappers_path
-    
     @app.post("/run_snakemake_wrapper", response_model=SnakemakeResponse, operation_id="run_snakemake_wrapper")
     async def run_snakemake_wrapper_endpoint(request: SnakemakeWrapperRequest):
         """
@@ -89,7 +85,7 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
                 None,
                 lambda: run_wrapper(
                     wrapper_name=request.wrapper_name,
-                    wrappers_path=app.state.wrappers_path,  # Use the wrappers_path from app state
+                    wrappers_path=wrappers_path,  # Use closure variable
                     inputs=request.inputs,
                     outputs=request.outputs,
                     params=request.params,
@@ -136,7 +132,7 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
                     threads=request.threads,
                     log=request.log,
                     extra_snakemake_args=request.extra_snakemake_args,
-                    workflows_dir=app.state.workflows_dir,  # Use the workflows_dir from app state
+                    workflows_dir=workflows_dir,  # Use closure variable
                     container=request.container,
                     benchmark=request.benchmark,
                     resources=request.resources,
