@@ -28,6 +28,31 @@ def workflows_dir(snakebase_dir):
     return os.path.join(snakebase_dir, "snakemake-workflows")
 
 @pytest.fixture(scope="function")
+def test_files():
+    """创建测试文件"""
+    temp_dir = tempfile.mkdtemp(prefix="direct_func_test_")
+    test_input = Path(temp_dir) / "test_genome.fasta"
+    test_output = Path(temp_dir) / "test_genome.fasta.fai"
+    
+    # 创建测试FASTA文件
+    with open(test_input, 'w') as f:
+        f.write(">chr1\nATCGATCGATCGATCGATCG\n")
+        f.write(">chr2\nGCTAGCTAGCTAGCTAGCTA\n")
+    
+    yield {
+        'input': str(test_input),
+        'output': str(test_output),
+        'temp_dir': temp_dir
+    }
+    
+    # 清理
+    try:
+        shutil.rmtree(temp_dir)
+    except Exception as e:
+        print(f"Warning: Failed to clean up {temp_dir}: {e}")
+
+# For API-based tests (MCP)
+@pytest.fixture(scope="function")
 def server_port():
     # Find a free port
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -77,27 +102,3 @@ async def http_client(server_url, mcp_server):
             yield client
     except Exception as e:
         pytest.fail(f"Failed to connect to HTTP server: {e}")
-
-@pytest.fixture(scope="function")
-def test_files():
-    """创建测试文件"""
-    temp_dir = tempfile.mkdtemp(prefix="http_mcp_test_")
-    test_input = Path(temp_dir) / "test_genome.fasta"
-    test_output = Path(temp_dir) / "test_genome.fasta.fai"
-    
-    # 创建测试FASTA文件
-    with open(test_input, 'w') as f:
-        f.write(">chr1\nATCGATCGATCGATCGATCG\n")
-        f.write(">chr2\nGCTAGCTAGCTAGCTAGCTA\n")
-    
-    yield {
-        'input': str(test_input),
-        'output': str(test_output),
-        'temp_dir': temp_dir
-    }
-    
-    # 清理
-    try:
-        shutil.rmtree(temp_dir)
-    except Exception as e:
-        print(f"Warning: Failed to clean up {temp_dir}: {e}")

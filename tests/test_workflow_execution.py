@@ -1,17 +1,19 @@
 import pytest
-import asyncio
 import os
 import tempfile
 import shutil
 from pathlib import Path
-from fastmcp import Client
+from snakemake_mcp_server.workflow_runner import run_workflow
 import yaml
 
-from snakemake_mcp_server.utils import extract_response_status
-
 @pytest.fixture(scope="function")
-def dummy_workflow_setup(workflows_dir):
+def dummy_workflow_setup():
     """Sets up a dummy Snakemake workflow for testing."""
+    # Get the workflows directory
+    workflows_dir = os.environ.get("SNAKEBASE_DIR", "./snakebase") + "/snakemake-workflows"
+    if not os.path.exists(workflows_dir):
+        workflows_dir = "./snakebase/snakemake-workflows"
+        
     # Create a temporary directory for the dummy workflow within workflows_dir
     workflow_name = "dummy_test_workflow"
     dummy_workflow_path = Path(workflows_dir) / workflow_name
@@ -53,6 +55,7 @@ rule create_output:
         "workflow_path": str(dummy_workflow_path),
         "output_file": str(results_dir / "output.txt"),
         "config_file": str(config_file),
+        "workflows_dir": workflows_dir,
     }
 
     # Teardown: Clean up the dummy workflow directory
@@ -61,76 +64,64 @@ rule create_output:
     except Exception as e:
         print(f"Warning: Failed to clean up dummy workflow {dummy_workflow_path}: {e}")
 
-@pytest.mark.asyncio
-async def test_run_snakemake_workflow_basic(http_client: Client, dummy_workflow_setup):
-    """测试 run_snakemake_workflow 的基本功能"""
+def test_run_snakemake_workflow_basic(dummy_workflow_setup):
+    """测试 run_workflow 函数的基本功能"""
     workflow_name = dummy_workflow_setup["workflow_name"]
     output_file = dummy_workflow_setup["output_file"]
+    workflows_dir = dummy_workflow_setup["workflows_dir"]
 
-    result = await asyncio.wait_for(
-        http_client.call_tool(
-            "run_snakemake_workflow",
-            {
-                "workflow_name": workflow_name,
-                "outputs": [output_file], # Specify output to trigger the rule
-            }
-        ),
-        timeout=120 # Workflow execution might take time
+    result = run_workflow(
+        workflow_name=workflow_name,
+        inputs=None,
+        outputs=[output_file],  # Specify output to trigger the rule
+        params={},
+        threads=1,
+        workflows_dir=workflows_dir,
     )
 
-    # The new FastAPI-first approach returns a structured SnakemakeResponse model
-    status = extract_response_status(result.data)
-    
-    assert status == 'success'
+    assert result['status'] == 'success'
     assert os.path.exists(output_file)
     with open(output_file, 'r') as f:
         content = f.read().strip()
         assert content == "default message"
 
-@pytest.mark.asyncio
-async def test_run_snakemake_workflow_with_params(http_client: Client, dummy_workflow_setup):
-    """测试 run_snakemake_workflow 传递参数并修改配置"""
+def test_run_snakemake_workflow_with_params(dummy_workflow_setup):
+    """测试 run_workflow 函数传递参数并修改配置"""
     workflow_name = dummy_workflow_setup["workflow_name"]
     output_file = dummy_workflow_setup["output_file"]
+    workflows_dir = dummy_workflow_setup["workflows_dir"]
     
     new_message = "hello from params"
 
-    result = await asyncio.wait_for(
-        http_client.call_tool(
-            "run_snakemake_workflow",
-            {
-                "workflow_name": workflow_name,
-                "outputs": [output_file],
-                "params": {"message": new_message}, # Override message via params
-            }
-        ),
-        timeout=120
+    result = run_workflow(
+        workflow_name=workflow_name,
+        inputs=None,
+        outputs=[output_file],
+        params={"message": new_message},  # Override message via params
+        threads=1,
+        workflows_dir=workflows_dir,
     )
 
-    # The new FastAPI-first approach returns a structured SnakemakeResponse model
-    status = extract_response_status(result.data)
-    
-    assert status == 'success'
+    assert result['status'] == 'success'
     assert os.path.exists(output_file)
     with open(output_file, 'r') as f:
         content = f.read().strip()
         assert content == new_message
 
-@pytest.mark.asyncio
-async def test_lint_snakemake_workflow_template(http_client: Client):
+def test_lint_snakemake_workflow_template():
     """Tests linting the snakemake-workflow-template workflow."""
-    result = await asyncio.wait_for(
-        http_client.call_tool(
-            "run_snakemake_workflow",
-            {
-                "workflow_name": "snakemake-workflow-template",
-                "extra_snakemake_args": "--lint",
-            }
-        ),
-        timeout=120
+    workflows_dir = os.environ.get("SNAKEBASE_DIR", "./snakebase") + "/snakemake-workflows"
+    if not os.path.exists(workflows_dir):
+        workflows_dir = "./snakebase/snakemake-workflows"
+    
+    result = run_workflow(
+        workflow_name="snakemake-workflow-template",
+        inputs=None,
+        outputs=None,
+        params={},
+        threads=1,
+        extra_snakemake_args="--lint",
+        workflows_dir=workflows_dir,
     )
 
-    # The new FastAPI-first approach returns a structured SnakemakeResponse model
-    status = extract_response_status(result.data)
-    
-    assert status == 'success'
+    assert result['status'] == 'success'

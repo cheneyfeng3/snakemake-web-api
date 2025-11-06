@@ -1,23 +1,24 @@
 import pytest
-import asyncio
-from fastmcp import Client
+import os
+from snakemake_mcp_server.wrapper_runner import run_wrapper
 
-@pytest.mark.asyncio
-async def test_run_wrapper_http_error_handling(http_client: Client, test_files):
-    """测试HTTP错误处理"""
-    with pytest.raises(Exception) as exc_info:
-        await asyncio.wait_for(
-            http_client.call_tool(
-                "run_snakemake_wrapper",
-                {
-                    "wrapper_name": "",  # 无效参数
-                    "inputs": [test_files['input']],
-                    "outputs": [test_files['output']],
-                    "params": {},
-                    "threads": 1
-                }
-            ),
-            timeout=30
-        )
+def test_run_wrapper_error_handling(test_files):
+    """测试直接函数调用的错误处理"""
+    # Get the wrappers path
+    wrappers_path = os.environ.get("SNAKEBASE_DIR", "./snakebase") + "/snakemake-wrappers"
+    if not os.path.exists(wrappers_path):
+        wrappers_path = "./snakebase/snakemake-wrappers"
     
-    assert "'wrapper_name' must be provided for wrapper execution." in str(exc_info.value)
+    # The function should return a failure result rather than raising an exception
+    result = run_wrapper(
+        wrapper_name="",  # 无效参数
+        wrappers_path=wrappers_path,
+        inputs=[test_files['input']],
+        outputs=[test_files['output']],
+        params={},
+        threads=1
+    )
+    
+    # Should return failed status
+    assert result["status"] == "failed"
+    assert "wrapper_name must be a non-empty string" in str(result.get("error_message", ""))

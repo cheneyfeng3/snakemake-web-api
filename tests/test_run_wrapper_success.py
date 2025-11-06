@@ -1,42 +1,35 @@
 import pytest
-import asyncio
 import os
-from fastmcp import Client
+from snakemake_mcp_server.wrapper_runner import run_wrapper
 
-from snakemake_mcp_server.utils import extract_response_status, extract_response_error_message
-
-@pytest.mark.asyncio
-async def test_run_wrapper_http_success(http_client: Client, test_files):
-    """测试通过HTTP成功执行wrapper"""
-    result = await asyncio.wait_for(
-        http_client.call_tool(
-            "run_snakemake_wrapper",
-            {
-                "wrapper_name": "samtools/faidx",
-                "inputs": [test_files['input']],
-                "outputs": [test_files['output']],
-                "params": {},
-                "threads": 1
-            }
-        ),
-        timeout=120  # Snakemake 执行需要更多时间
+def test_run_wrapper_success(test_files):
+    """测试通过直接函数调用成功执行wrapper"""
+    # Get the wrappers path
+    wrappers_path = os.environ.get("SNAKEBASE_DIR", "./snakebase") + "/snakemake-wrappers"
+    if not os.path.exists(wrappers_path):
+        wrappers_path = "./snakebase/snakemake-wrappers"
+    
+    result = run_wrapper(
+        wrapper_name="samtools/faidx",
+        wrappers_path=wrappers_path,
+        inputs=[test_files['input']],
+        outputs=[test_files['output']],
+        params={},
+        threads=1
     )
     
     # 验证结果
-    assert hasattr(result, 'data'), "Result should have data attribute"
+    assert 'status' in result, "Result should have status attribute"
     
-    # The new FastAPI-first approach returns a structured SnakemakeResponse model
-    status = extract_response_status(result.data)
-    error_message = extract_response_error_message(result.data)
+    # 验證執行狀態
+    assert result['status'] == 'success', \
+        f"Expected success, got {result.get('status')}: {result.get('error_message')}"
     
-    # 验证执行状态
-    assert status == 'success', f"Expected success, got {status}: {error_message}"
-    
-    # 验证输出文件
+    # 驗證輸出文件
     assert os.path.exists(test_files['output']), \
         f"Output file should be created: {test_files['output']}"
     
-    # 验证文件内容
+    # 驗證文件內容
     with open(test_files['output'], 'r') as f:
         content = f.read().strip()
         assert len(content) > 0, "Output file should not be empty"

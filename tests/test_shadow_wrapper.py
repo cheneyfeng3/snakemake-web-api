@@ -1,43 +1,36 @@
 import pytest
-import asyncio
 import os
-from fastmcp import Client
+from snakemake_mcp_server.wrapper_runner import run_wrapper
 
-from snakemake_mcp_server.utils import extract_response_status, extract_response_error_message
-
-@pytest.mark.asyncio
-async def test_run_wrapper_with_shadow(http_client: Client, test_files):
-    """测试通过HTTP成功执行带有shadow指令的wrapper"""
-    # 1. 调用 run_snakemake_wrapper，并设置 shadow 参数
-    result = await asyncio.wait_for(
-        http_client.call_tool(
-            "run_snakemake_wrapper",
-            {
-                "wrapper_name": "samtools/faidx",
-                "inputs": [test_files['input']],
-                "outputs": [test_files['output']],
-                "params": {},
-                "threads": 1,
-                "shadow": "minimal", # 设置 shadow 指令为 "minimal"
-            }
-        ),
-        timeout=120  # Snakemake 执行可能需要更多时间
+def test_run_wrapper_with_shadow(test_files):
+    """测试通过直接函数调用成功执行带有shadow指令的wrapper"""
+    # Get the wrappers path
+    wrappers_path = os.environ.get("SNAKEBASE_DIR", "./snakebase") + "/snakemake-wrappers"
+    if not os.path.exists(wrappers_path):
+        wrappers_path = "./snakebase/snakemake-wrappers"
+    
+    # 1. 调用 run_wrapper，并设置 shadow 参数
+    result = run_wrapper(
+        wrapper_name="samtools/faidx",
+        wrappers_path=wrappers_path,
+        inputs=[test_files['input']],
+        outputs=[test_files['output']],
+        params={},
+        threads=1,
+        shadow="minimal", # 设置 shadow 指令为 "minimal"
     )
     
     # 2. 验证结果
-    assert hasattr(result, 'data'), "Result should have data attribute"
+    assert 'status' in result, "Result should have status attribute"
     
-    # The new FastAPI-first approach returns a structured SnakemakeResponse model
-    status = extract_response_status(result.data)
-    error_message = extract_response_error_message(result.data)
+    assert result['status'] == 'success', \
+        f"Expected success, got {result.get('status')}: {result.get('error_message')}"
     
-    assert status == 'success', f"Expected success, got {status}: {error_message}"
-    
-    # 3. 验证输出文件是否存在于最终位置
+    # 3. 驗證輸出文件是否存在於最終位置
     assert os.path.exists(test_files['output']), \
         f"Output file should be created: {test_files['output']}"
     
-    # 4. 验证文件内容 (与 test_run_wrapper_http_success 相同)
+    # 4. 驗證文件內容 (與 test_run_wrapper_success 相同)
     with open(test_files['output'], 'r') as f:
         content = f.read().strip()
         assert len(content) > 0, "Output file should not be empty"
