@@ -6,9 +6,12 @@ using the FastMCP.from_fastapi() method.
 """
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Union, Dict, List, Optional
+from typing import Union, Dict, List, Optional, Any
 import asyncio
 import logging
+import os
+import yaml
+from pathlib import Path
 from .wrapper_runner import run_wrapper
 from .workflow_runner import run_workflow
 
@@ -52,6 +55,23 @@ class SnakemakeResponse(BaseModel):
     error_message: Optional[str] = None
 
 
+class WrapperMetadata(BaseModel):
+    name: str
+    description: Optional[str] = None
+    url: Optional[str] = None
+    authors: Optional[List[str]] = None
+    input: Optional[Any] = None
+    output: Optional[Any] = None
+    params: Optional[Any] = None
+    notes: Optional[str] = None
+    path: str  # Relative path of the wrapper
+
+
+class ListWrappersResponse(BaseModel):
+    wrappers: List[WrapperMetadata]
+    total_count: int
+
+
 def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI:
     """
     Create a native FastAPI application with Snakemake functionality.
@@ -67,17 +87,67 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
         version="1.0.0"
     )
     
-    @app.post("/run_snakemake_wrapper", response_model=SnakemakeResponse, operation_id="run_snakemake_wrapper")
-    async def run_snakemake_wrapper_endpoint(request: SnakemakeWrapperRequest):
+    def load_wrapper_metadata(wrappers_dir: str) -> List[WrapperMetadata]:
         """
-        Executes a Snakemake wrapper by name and returns the result.
+        Load metadata for all available wrappers by scanning meta.yaml files.
+        
+        Args:
+            wrappers_dir: Path to the wrappers directory
+            
+        Returns:
+            List of WrapperMetadata objects
         """
-        logger.info(f"Received request for wrapper: {request.wrapper_name}")
+        wrappers = []
+        
+        # Walk through the wrapper directory structure, excluding .snakemake and other hidden directories
+        for root, dirs, files in os.walk(wrappers_dir):
+            # Remove hidden directories (including .snakemake) from dirs to prevent walking into them
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            
+            for file in files:
+                if file == "meta.yaml":
+                    meta_file_path = os.path.join(root, file)
+                    try:
+                        with open(meta_file_path, 'r', encoding='utf-8') as f:
+                            meta_data = yaml.safe_load(f)
+                        
+                        # Calculate the relative path from wrappers_dir to get wrapper name
+                        wrapper_path = os.path.relpath(root, wrappers_dir)
+                        
+                        # Create a WrapperMetadata object
+                        wrapper_meta = WrapperMetadata(
+                            name=meta_data.get('name', os.path.basename(root)),
+                            description=meta_data.get('description'),
+                            url=meta_data.get('url'),
+                            authors=meta_data.get('authors'),
+                            input=meta_data.get('input'),
+                            output=meta_data.get('output'),
+                            params=meta_data.get('params'),
+                            notes=meta_data.get('notes'),
+                            path=wrapper_path
+                        )
+                        wrappers.append(wrapper_meta)
+                    except Exception as e:
+                        logger.warning(f"Could not load meta.yaml from {meta_file_path}: {e}")
+                        continue
+        
+        return wrappers
+    
+    # Store workflows_dir and wrappers_path in app.state to make them accessible to the endpoints
+    app.state.wrappers_path = os.path.abspath(wrappers_path)
+    app.state.workflows_dir = os.path.abspath(workflows_dir)
+    
+    @app.post("/tools/process", response_model=SnakemakeResponse, operation_id="tool_process")
+    async def tool_process_endpoint(request: SnakemakeWrapperRequest):
+        """
+        Process a Snakemake tool by name and returns the result.
+        """
+        logger.info(f"Received request for tool: {request.wrapper_name}")
         
         if not request.wrapper_name:
-            raise HTTPException(status_code=400, detail="'wrapper_name' must be provided for wrapper execution.")
+            raise HTTPException(status_code=400, detail="'wrapper_name' must be provided for tool execution.")
 
-        logger.info(f"Processing wrapper request: {request.wrapper_name}")
+        logger.info(f"Processing tool request: {request.wrapper_name}")
         
         try:
             # Run in thread to avoid blocking
@@ -85,7 +155,7 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
                 None,
                 lambda: run_wrapper(
                     wrapper_name=request.wrapper_name,
-                    wrappers_path=wrappers_path,  # Use closure variable
+                    wrappers_path=app.state.wrappers_path,  # Use app.state as before to maintain consistency
                     inputs=request.inputs,
                     outputs=request.outputs,
                     params=request.params,
@@ -101,17 +171,17 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
                 )
             )
             
-            logger.info(f"Wrapper execution completed with status: {result['status']}")
+            logger.info(f"Tool execution completed with status: {result['status']}")
             return result
                 
         except Exception as e:
-            logger.error(f"Error executing wrapper '{request.wrapper_name}': {str(e)}")
+            logger.error(f"Error executing tool '{request.wrapper_name}': {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    @app.post("/run_snakemake_workflow", response_model=SnakemakeResponse, operation_id="run_snakemake_workflow")
-    async def run_snakemake_workflow_endpoint(request: SnakemakeWorkflowRequest):
+    @app.post("/workflows/process", response_model=SnakemakeResponse, operation_id="workflow_process")
+    async def workflow_process_endpoint(request: SnakemakeWorkflowRequest):
         """
-        Executes a full Snakemake workflow by name and returns the result.
+        Process a Snakemake workflow by name and returns the result.
         """
         logger.info(f"Received request for workflow: {request.workflow_name}")
 
@@ -132,7 +202,7 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
                     threads=request.threads,
                     log=request.log,
                     extra_snakemake_args=request.extra_snakemake_args,
-                    workflows_dir=workflows_dir,  # Use closure variable
+                    workflows_dir=app.state.workflows_dir,  # Use app.state for consistency
                     container=request.container,
                     benchmark=request.benchmark,
                     resources=request.resources,
@@ -153,6 +223,81 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
     @app.get("/health")
     def health_check():
         return {"status": "healthy", "service": "snakemake-native-api"}
+
+    @app.get("/tools", response_model=ListWrappersResponse, operation_id="list_tools")
+    async def get_tools():
+        """
+        Get all available tools with their metadata from meta.yaml files.
+        """
+        logger.info("Received request to get tools")
+        
+        try:
+            # Load tool metadata - need to pass the path that was used to create the app
+            # Since we use closure variables now, we just pass the wrappers_path variable
+            wrappers = load_wrapper_metadata(wrappers_path)
+            
+            logger.info(f"Found {len(wrappers)} tools")
+            
+            return ListWrappersResponse(
+                wrappers=wrappers,
+                total_count=len(wrappers)
+            )
+        except Exception as e:
+            logger.error(f"Error getting tools: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error getting tools: {str(e)}")
+
+    @app.get("/get-tool-meta/{tool_path:path}", response_model=WrapperMetadata, operation_id="get_tool_meta")
+    async def get_tool_meta(tool_path: str):
+        """
+        Get metadata for a specific tool by its path.
+        
+        Args:
+            tool_path: The relative path of the tool (e.g., "bio/samtools/faidx")
+        """
+        logger.info(f"Received request to get metadata for tool: {tool_path}")
+        
+        try:
+            # Sanitize the path to prevent directory traversal
+            if tool_path.startswith('/') or tool_path.startswith('..'):
+                raise HTTPException(status_code=400, detail="Invalid tool path")
+            
+            # Build the full path by joining with the wrappers_path
+            full_path = os.path.join(wrappers_path, tool_path)
+            
+            # Check if the directory exists
+            if not os.path.exists(full_path) or not os.path.isdir(full_path):
+                raise HTTPException(status_code=404, detail=f"Tool not found: {tool_path}")
+            
+            # Look for meta.yaml in the tool directory
+            meta_file_path = os.path.join(full_path, "meta.yaml")
+            if not os.path.exists(meta_file_path):
+                raise HTTPException(status_code=404, detail=f"Meta file not found for tool: {tool_path}")
+            
+            # Load and return the metadata
+            with open(meta_file_path, 'r', encoding='utf-8') as f:
+                meta_data = yaml.safe_load(f)
+            
+            # Create and return the WrapperMetadata object
+            wrapper_meta = WrapperMetadata(
+                name=meta_data.get('name', os.path.basename(full_path)),
+                description=meta_data.get('description'),
+                url=meta_data.get('url'),
+                authors=meta_data.get('authors'),
+                input=meta_data.get('input'),
+                output=meta_data.get('output'),
+                params=meta_data.get('params'),
+                notes=meta_data.get('notes'),
+                path=tool_path
+            )
+            
+            logger.info(f"Successfully retrieved metadata for tool: {tool_path}")
+            return wrapper_meta
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error getting tool metadata for {tool_path}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error getting tool metadata: {str(e)}")
 
     return app
 
