@@ -1,9 +1,18 @@
 import sys
 import os
 import logging
+import dotenv
+from pathlib import Path
 from typing import Union, Dict, List, Optional
 from fastmcp import FastMCP
 import anyio
+
+# Load environment variables from ~/.swa/.env if file exists
+config_dir = Path.home() / ".swa"
+env_file = config_dir / ".env"
+
+if env_file.exists():
+    dotenv.load_dotenv(env_file)
 
 # 配置日志
 logging.basicConfig(
@@ -40,29 +49,73 @@ def create_mcp_from_fastapi(wrappers_path: str, workflows_dir: str):
     return mcp
 
 import click
+import sys
+import os
+from pathlib import Path
 
-@click.group()
-def cli():
-    pass
+def validate_paths(snakebase_dir):
+    """Validate the snakebase directory structure."""
+    snakebase_path = Path(snakebase_dir).resolve()
+    if not snakebase_path.exists():
+        click.echo(f"Error: snakebase directory does not exist: {snakebase_path}", err=True)
+        sys.exit(1)
+    
+    wrappers_path = snakebase_path / "snakemake-wrappers"
+    workflows_dir = snakebase_path / "snakemake-workflows"
+    
+    return str(wrappers_path), str(workflows_dir)
+
+@click.group(
+    help="Snakemake MCP Server - A server for running Snakemake wrappers and workflows via MCP protocol."
+)
+@click.option(
+    '--snakebase-dir', 
+    default=lambda: os.environ.get("SNAKEBASE_DIR", "./snakebase"),
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    help="Base directory for snakebase containing snakemake-wrappers and snakemake-workflows subdirectories. "
+         "Defaults to SNAKEBASE_DIR environment variable or './snakebase'."
+)
+@click.pass_context
+def cli(ctx, snakebase_dir):
+    """Main CLI group for Snakemake MCP Server."""
+    ctx.ensure_object(dict)
+    wrappers_path, workflows_dir = validate_paths(snakebase_dir)
+    
+    # Add paths to context
+    ctx.obj['SNAKEBASE_DIR'] = Path(snakebase_dir).resolve()
+    ctx.obj['WRAPPERS_PATH'] = wrappers_path
+    ctx.obj['WORKFLOWS_DIR'] = workflows_dir
 
 
-@cli.command()
-@click.option("--host", default="127.0.0.1", help="Host to bind to")
-@click.option("--port", default=8082, help="Port to bind to")
-@click.option("--snakebase-dir", default=os.environ.get("SNAKEBASE_DIR", "./snakebase"), help="Base directory for snakebase.")
-def run_fastapi_rest(host, port, snakebase_dir):
-    """Starts the Snakemake Wrapper Server as a native FastAPI REST API."""
+# Note: The original direct MCP server is no longer supported as we're using the FastAPI-first approach
+# Only the two new command variants are available: rest and mcp
+
+
+@cli.command(
+    help="Start the Snakemake server with native FastAPI REST endpoints. "
+         "This provides standard REST API endpoints with full OpenAPI documentation."
+)
+@click.option("--host", default="127.0.0.1", help="Host to bind to. Default: 127.0.0.1")
+@click.option("--port", default=8082, type=int, help="Port to bind to. Default: 8082")
+@click.option("--log-level", default="INFO", type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR']),
+              help="Logging level. Default: INFO")
+@click.pass_context
+def rest(ctx, host, port, log_level):
+    """Start the Snakemake server with native FastAPI REST endpoints."""
     import uvicorn
     from .fastapi_app import create_native_fastapi_app
     
-    logger.info(f"Starting Snakemake Wrapper Server as native FastAPI REST API...")
+    # Get paths from context (already strings now)
+    wrappers_path = ctx.obj['WRAPPERS_PATH']
+    workflows_dir = ctx.obj['WORKFLOWS_DIR']
+    
+    logger.setLevel(log_level)
+    
+    logger.info(f"Starting Snakemake Server with native FastAPI REST API...")
     logger.info(f"FastAPI server will be available at http://{host}:{port}")
+    logger.info(f"OpenAPI documentation available at http://{host}:{port}/docs")
     logger.info(f"All endpoints will be available as standard REST endpoints")
-    
-    wrappers_path = os.path.abspath(os.path.join(snakebase_dir, "snakemake-wrappers"))
-    workflows_dir = os.path.abspath(os.path.join(snakebase_dir, "snakemake-workflows"))
-    
-    logger.info(f"Using snakebase from: {os.path.abspath(snakebase_dir)}")
+    logger.info(f"Using snakebase from: {ctx.obj['SNAKEBASE_DIR']}")
     
     if not os.path.isdir(wrappers_path):
         logger.error(f"Wrappers directory not found at: {wrappers_path}")
@@ -80,26 +133,33 @@ def run_fastapi_rest(host, port, snakebase_dir):
         app,
         host=host,
         port=port,
-        log_level="info"
+        log_level=log_level.lower()
     )
 
 
-@cli.command()
-@click.option("--host", default="127.0.0.1", help="Host to bind to")
-@click.option("--port", default=8083, help="Port to bind to")
-@click.option("--log-level", default="INFO", help="Log level")
-@click.option("--snakebase-dir", default=os.environ.get("SNAKEBASE_DIR", "./snakebase"), help="Base directory for snakebase.")
-def run_mcp_from_fastapi(host, port, log_level, snakebase_dir):
-    """Starts the Snakemake Wrapper MCP Server converted from FastAPI endpoints."""
+@cli.command(
+    help="Start the Snakemake server with MCP protocol support. "
+         "This provides MCP protocol endpoints derived from FastAPI definitions."
+)
+@click.option("--host", default="127.0.0.1", help="Host to bind to. Default: 127.0.0.1")
+@click.option("--port", default=8083, type=int, help="Port to bind to. Default: 8083")
+@click.option("--log-level", default="INFO", type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR']),
+              help="Logging level. Default: INFO")
+@click.pass_context
+def mcp(ctx, host, port, log_level):
+    """Start the Snakemake server with MCP protocol support."""
     from .fastapi_app import create_mcp_from_fastapi
     
-    logger.info(f"Starting Snakemake Wrapper MCP Server (converted from FastAPI)...")
+    # Get paths from context (already strings now)
+    wrappers_path = ctx.obj['WRAPPERS_PATH']
+    workflows_dir = ctx.obj['WORKFLOWS_DIR']
+    
+    logger.setLevel(log_level)
+    
+    logger.info(f"Starting Snakemake Server with MCP protocol support...")
     logger.info(f"Server will be available at http://{host}:{port}")
-    
-    wrappers_path = os.path.abspath(os.path.join(snakebase_dir, "snakemake-wrappers"))
-    workflows_dir = os.path.abspath(os.path.join(snakebase_dir, "snakemake-workflows"))
-    
-    logger.info(f"Using snakebase from: {os.path.abspath(snakebase_dir)}")
+    logger.info(f"MCP endpoints will be available at http://{host}:{port}/mcp")
+    logger.info(f"Using snakebase from: {ctx.obj['SNAKEBASE_DIR']}")
     
     if not os.path.isdir(wrappers_path):
         logger.error(f"Wrappers directory not found at: {wrappers_path}")

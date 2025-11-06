@@ -1,7 +1,7 @@
 [project]
-name = "snakemake-mcp-server"
-version = "0.1.0"
-description = "A server for running Snakemake wrappers via MCP."
+name = "snakemake-web-api"
+version = "1.0.0"
+description = "Web API for running Snakemake workflows and wrappers."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,13 +12,15 @@ dependencies = [
     "pandas>=2.3.2",
     "fastapi>=0.100.0",
     "uvicorn>=0.20.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.scripts]
-"snakemake-mcp-server" = "snakemake_mcp_server.server:cli"
+"snakemake-web-api" = "snakemake_mcp_server.server:cli"
+"swa" = "snakemake_mcp_server.server:cli"
 
 [project.urls]
-"Homepage" = "https://github.com/excelwang/snakemake-mcp-server"
+"Homepage" = "https://github.com/excelwang/snakemake-web-api"
 
 [build-system]
 requires = ["setuptools>=61.0"]
