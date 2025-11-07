@@ -11,17 +11,20 @@ def _value_serializer(val: Any) -> Any:
     """
     Serialize complex Snakemake objects to basic Python types.
     """
-    if isinstance(val, (str, int, float, bool, dict, list, set, tuple)) or val is None:
+    if callable(val):
+        # Check for callable objects first to handle functions, lambdas, etc.
+        return "<callable>"
+    if isinstance(val, (str, int, float, bool)) or val is None:
         return val
+    if isinstance(val, (list, set, tuple)):
+        # For iterable objects
+        return [_value_serializer(v) for v in val]
     if hasattr(val, '_plainstrings'):
         # For Namedlist objects like InputFiles, OutputFiles, etc.
         return val._plainstrings()
     if isinstance(val, dict) or hasattr(val, 'items'):
         # For dict-like objects
         return {str(k): _value_serializer(v) for k, v in val.items()}
-    if hasattr(val, '__iter__'):
-        # For other iterables
-        return [_value_serializer(v) for v in val]
     return str(val)
 
 
