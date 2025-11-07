@@ -30,6 +30,7 @@ class SnakemakeWrapperRequest(BaseModel):
     resources: Optional[Dict] = None
     shadow: Optional[str] = None
     conda_env: Optional[str] = None
+    workdir: Optional[str] = None
 
 
 class SnakemakeWorkflowRequest(BaseModel):
@@ -55,6 +56,13 @@ class SnakemakeResponse(BaseModel):
     error_message: Optional[str] = None
 
 
+class DemoCall(BaseModel):
+    method: str
+    endpoint: str
+    payload: Dict[str, Any]
+    curl_example: str
+
+
 class WrapperMetadata(BaseModel):
     name: str
     description: Optional[str] = None
@@ -63,9 +71,9 @@ class WrapperMetadata(BaseModel):
     input: Optional[Any] = None
     output: Optional[Any] = None
     params: Optional[Any] = None
-    notes: Optional[str] = None
+    notes: Optional[List[str]] = None
     path: str  # Relative path of the wrapper
-    demos: Optional[List[Dict[str, Any]]] = None  # Include demo calls in the metadata
+    demos: Optional[List[DemoCall]] = None  # Include demo calls in the metadata
 
 
 class ListWrappersResponse(BaseModel):
@@ -115,6 +123,11 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
                         # Calculate the relative path from wrappers_dir to get wrapper name
                         wrapper_path = os.path.relpath(root, wrappers_dir)
                         
+                        # Handle notes field to ensure it is a list
+                        notes_data = meta_data.get('notes')
+                        if isinstance(notes_data, str):
+                            notes_data = [notes_data]
+                        
                         # Create a WrapperMetadata object
                         wrapper_meta = WrapperMetadata(
                             name=meta_data.get('name', os.path.basename(root)),
@@ -124,7 +137,7 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
                             input=meta_data.get('input'),
                             output=meta_data.get('output'),
                             params=meta_data.get('params'),
-                            notes=meta_data.get('notes'),
+                            notes=notes_data,
                             path=wrapper_path
                         )
                         wrappers.append(wrapper_meta)
@@ -168,6 +181,7 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
                     resources=request.resources,
                     shadow=request.shadow,
                     conda_env=request.conda_env,
+                    workdir=request.workdir,
                     timeout=600  # timeout
                 )
             )
@@ -292,12 +306,13 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
                 payload_json = json.dumps(basic_demo_call)
                 curl_example = f'curl -X POST http://server/tool-processes -H "Content-Type: application/json" -d \'{payload_json}\''
                 
-                enhanced_demo = {
-                    'method': 'POST',
-                    'endpoint': '/tool-processes',
-                    'payload': basic_demo_call,  # This contains just the API parameters for tool-processes
-                    'curl_example': curl_example
-                }
+                # Create DemoCall objects to ensure FastMCP properly recognizes them
+                enhanced_demo = DemoCall(
+                    method='POST',
+                    endpoint='/tool-processes',
+                    payload=basic_demo_call,  # This contains just the API parameters for tool-processes
+                    curl_example=curl_example
+                )
                 enhanced_demos.append(enhanced_demo)
             
             # Create and return the WrapperMetadata object

@@ -35,6 +35,8 @@ def _validate_inputs(wrapper_name: str,
 
 def _format_rule_section(data, directive: str = ""):
     """Helper function to format a dictionary or list into a Snakemake rule string."""
+    if data is None:
+        return ""
     if not data:
         return ""
     
@@ -43,13 +45,25 @@ def _format_rule_section(data, directive: str = ""):
             items = [f"{key}={value}" for key, value in data.items()]
             return textwrap.indent(",\n".join(items), "        ")
         elif isinstance(data, dict):
-            items = [f"{key}={repr(value)}" for key, value in data.items()]
+            items = []
+            for key, value in data.items():
+                if isinstance(value, str) and ("(" in value or "[" in value):
+                    items.append(f"{key}={value}")
+                else:
+                    items.append(f"{key}={repr(value)}")
             return textwrap.indent(",\n".join(items), "        ")
         elif isinstance(data, list):
-            items = [repr(value) for value in data]
+            items = []
+            for value in data:
+                if isinstance(value, str) and ("(" in value or "[" in value):
+                    items.append(value)
+                else:
+                    items.append(repr(value))
             return textwrap.indent(",\n".join(items), "        ")
+        elif isinstance(data, str) and ("(" in data or "[" in data):
+            return textwrap.indent(data, "        ")
         else:
-            return str(data)
+            return textwrap.indent(repr(data), "        ")
     except Exception as e:
         logger.error(f"Error formatting rule section: {e}")
         raise ValueError(f"Failed to format rule section: {e}")
@@ -66,6 +80,7 @@ def run_wrapper(wrapper_name: str,
                 resources: Optional[Dict] = None,
                 shadow: Optional[str] = None,
                 conda_env: Optional[str] = None,
+                workdir: Optional[str] = None,
                 timeout: int = 600) -> Dict:
     """ 
     Dynamically generates a Snakefile to run a single Snakemake wrapper and executes it.
@@ -80,7 +95,7 @@ def run_wrapper(wrapper_name: str,
         _validate_inputs(wrapper_name, inputs, outputs, params, threads, log)
         
         # 确定wrapper路径
-        wrapper_path = Path(wrappers_path) / "bio" / wrapper_name
+        wrapper_path = Path(wrappers_path) / wrapper_name
         if not wrapper_path.exists():
             raise FileNotFoundError(f"Wrapper not found at: {wrapper_path}")
         
@@ -127,6 +142,8 @@ rule run_single_wrapper:
     wrapper:
         "{wrapper_url}"
 """
+        
+        logger.debug(f"Snakefile content:\n{snakefile_content}")
 
         # 创建临时Snakefile
         with tempfile.NamedTemporaryFile(mode='w', suffix='.smk', delete=False) as tmp_snakefile:
@@ -162,6 +179,12 @@ rule run_single_wrapper:
         
         logger.info(f"Executing command: {' '.join(command)}")
         
+        # Set the working directory
+        if workdir:
+            cwd = workdir
+        else:
+            cwd = wrappers_path
+
         # 执行命令 - 使用绝对路径作为工作目录
         result = subprocess.run(
             command, 
@@ -169,7 +192,7 @@ rule run_single_wrapper:
             capture_output=True, 
             text=True,
             timeout=timeout,
-            cwd=Path(wrappers_path).resolve()
+            cwd=Path(cwd).resolve()
         )
         
         return {

@@ -56,7 +56,7 @@ To run the Snakemake MCP Server, you need to have Snakemake and Conda (or Mamba)
 
 ### Setting up the `snakebase` Directory
 
-The `snakemake-mcp-server` relies on a specific directory structure to locate Snakemake wrappers and workflows. This base directory is referred to as `snakebase`. By default, the server looks for a directory named `snakebase` in the current working directory. The location of this directory can be customized by setting the `SNAKEBASE_DIR` environment variable.
+The `snakemake-web-api` relies on a specific directory structure to locate Snakemake wrappers and workflows. This base directory is referred to as `snakebase`. By default, the server looks for a directory named `snakebase` in the current working directory. The location of this directory can be customized by setting the `SNAKEBASE_DIR` environment variable.
 
 The `snakebase` directory must contain the following subdirectories:
 
@@ -105,8 +105,8 @@ This method uses the `uv` package manager to install the server as a proper Pyth
 
 1.  **Clone this repository:**
     ```bash
-    git clone https://github.com/excelwang/snakemake-mcp-server.git
-    cd snakemake-mcp-server
+    git clone https://github.com/excelwang/snakemake-web-api.git
+    cd snakemake-web-api
     ```
 
 2.  **Create a virtual environment (recommended):**
@@ -123,11 +123,11 @@ This method uses the `uv` package manager to install the server as a proper Pyth
     This will install the server in editable mode and all its dependencies.
 
 ## Run the Server
-    Navigate to the `snakemake-mcp-server` directory and start the server using the `click` CLI:
+    Navigate to the `snakemake-web-api` directory and start the server using the `click` CLI:
 
     ```bash
     export SNAKEBASE_DIR=/path/to/your/snakebase
-    snakemake-mcp-server run \
+    snakemake-web-api run \
         --host 127.0.0.1 \
         --port 8081
     ```

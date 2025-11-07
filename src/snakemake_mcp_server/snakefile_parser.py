@@ -355,6 +355,9 @@ def generate_demo_calls_for_wrapper(wrapper_path: str) -> List[Dict[str, Any]]:
     
     # Add example values and documentation to each call
     for call in demo_calls:
+        # Add the workdir to the call
+        call['workdir'] = str(test_dir)
+
         # Add example documentation for user guidance
         call['example_info'] = {
             'rule_name': call.get('rule_name', 'unknown'),
