@@ -41,93 +41,94 @@ def parse_snakefile_with_api(snakefile_path: str) -> List[Dict[str, Any]]:
     # Store original sys.path and cwd
     original_sys_path = sys.path[:]
     original_cwd = os.getcwd()
-    workflow = None # Initialize workflow to None
     
     try:
-        # Snakemake API imports (moved inside try block to avoid circular imports)
-        from snakemake.workflow import Workflow
-        from snakemake.settings.types import (
-            ConfigSettings,
-            ResourceSettings,
-            WorkflowSettings,
-            StorageSettings,
-            DeploymentSettings,
-            ExecutionSettings,
-            SchedulingSettings,
-            OutputSettings,
-            DAGSettings,
-        )
-        from snakemake.io import is_callable
-    except ImportError as e:
-        print(f"Error: Snakemake is not installed or accessible. Please install Snakemake. {e}", file=sys.stderr)
-        return [] # Return empty list if Snakemake imports fail
+        # Use the new Snakemake API which should avoid circular import issues
+        from snakemake.api import SnakemakeApi
+        from snakemake.settings.types import ConfigSettings, ResourceSettings, WorkflowSettings, StorageSettings, \
+            DeploymentSettings, OutputSettings
 
-    try:
-        # 1. Instantiate Workflow object with default settings
-        # We use default settings objects for parsing purposes.
-        # The workdir needs to be set to the snakefile's directory for correct relative path resolution
         workdir = Path(snakefile_path).parent
-        
-        workflow = Workflow(
-            config_settings=ConfigSettings(),
-            resource_settings=ResourceSettings(),
-            workflow_settings=WorkflowSettings(
-                main_snakefile=snakefile_path
-            ),
-            storage_settings=StorageSettings(),
-            deployment_settings=DeploymentSettings(),
-            execution_settings=ExecutionSettings(),
-            scheduling_settings=SchedulingSettings(),
-            output_settings=OutputSettings(),
-            dag_settings=DAGSettings(),
-        )
-        workflow.overwrite_workdir = workdir
-
-        # 2. Call include() to parse the snakefile and populate the workflow object
-        # This needs to be done inside the snakefile's directory
         os.chdir(workdir)
-        workflow.include(snakefile_path)
+        
+        # Use relative path for snakefile since we're in the workdir
+        relative_snakefile_path = Path(Path(snakefile_path).name)
 
-        # 3. Extract information from each rule
-        parsed_rules = []
-        for rule in workflow.rules:
-            rule_dict = {}
-            # Extract all relevant attributes from the Rule object
-            attributes_to_extract = [
-                'name', 'docstring', 'message', 'input', 'output', 'params',
-                'wildcard_constraints', 'temp_output', 'protected_output',
-                'touch_output', 'shadow_depth', 'resources', 'priority', 'log',
-                'benchmark', 'conda_env', 'container_img', 'is_containerized',
-                'env_modules', 'group', 'wildcard_names', 'lineno', 'snakefile',
-                'shellcmd', 'script', 'notebook', 'wrapper', 'template_engine',
-                'cwl', 'norun', 'is_handover', 'is_checkpoint', 'restart_times'
-            ]
+        # Use the API to load the workflow without executing it
+        config_settings = ConfigSettings()
+        resource_settings = ResourceSettings()
+        workflow_settings = WorkflowSettings()
+        storage_settings = StorageSettings()
+        deployment_settings = DeploymentSettings()
+
+        # Create API instance and workflow in a with statement
+        with SnakemakeApi(output_settings=OutputSettings()) as api:
+            workflow_api = api.workflow(
+                resource_settings=resource_settings,
+                config_settings=config_settings,
+                workflow_settings=workflow_settings,
+                storage_settings=storage_settings,
+                deployment_settings=deployment_settings,
+                snakefile=relative_snakefile_path,  # Use relative path since we're in the workdir
+                workdir=Path.cwd()  # Use current working directory
+            )
             
-            for attr in attributes_to_extract:
-                # Use private attributes for some properties
-                attr_private = f"_{attr}"
-                if hasattr(rule, attr):
-                    val = getattr(rule, attr)
-                elif hasattr(rule, attr_private):
-                    val = getattr(rule, attr_private)
-                else:
-                    continue
-
-                if is_callable(val):
-                    rule_dict[attr] = "<callable>"
-                else:
-                    rule_dict[attr] = _value_serializer(val)
-
-            # Special handling for threads, which is inside resources
-            if 'resources' in rule_dict and isinstance(rule_dict['resources'], dict) and '_cores' in rule_dict['resources']:
-                rule_dict['threads'] = rule_dict['resources']['_cores']
-
-            parsed_rules.append(rule_dict)
+            # Access the internal workflow object to extract rule information
+            internal_workflow = workflow_api._workflow
             
-        return parsed_rules
+            # Extract information from each rule
+            parsed_rules = []
+            for rule in internal_workflow.rules:
+                rule_dict = {}
+                # Extract all relevant attributes from the Rule object
+                attributes_to_extract = [
+                    'name', 'docstring', 'message', 'input', 'output', 'params',
+                    'wildcard_constraints', 'temp_output', 'protected_output',
+                    'touch_output', 'shadow_depth', 'resources', 'priority', 'log',
+                    'benchmark', 'conda_env', 'container_img', 'is_containerized',
+                    'env_modules', 'group', 'wildcard_names', 'lineno', 'snakefile',
+                    'shellcmd', 'script', 'notebook', 'wrapper', 'template_engine',
+                    'cwl', 'norun', 'is_handover', 'is_checkpoint', 'restart_times'
+                ]
+                
+                for attr in attributes_to_extract:
+                    # Try to access the attribute directly first, then with underscore prefix
+                    attr_private = f"_{attr}"
+                    if hasattr(rule, attr):
+                        val = getattr(rule, attr)
+                    elif hasattr(rule, attr_private):
+                        val = getattr(rule, attr_private)
+                    else:
+                        continue
 
+                    if hasattr(val, '__call__'):  # Check if it's a callable
+                        rule_dict[attr] = "<callable>"
+                    else:
+                        rule_dict[attr] = _value_serializer(val)
+
+                # Special handling for threads, which is inside resources
+                if 'resources' in rule_dict and isinstance(rule_dict['resources'], dict) and '_cores' in rule_dict['resources']:
+                    rule_dict['threads'] = rule_dict['resources']['_cores']
+
+                parsed_rules.append(rule_dict)
+                
+            return parsed_rules
+
+    except ImportError as e:
+        if "circular import" in str(e).lower() or "partially initialized module" in str(e).lower():
+            print(f"Error: Circular import in snakemake. This is likely due to version incompatibility: {e}", file=sys.stderr)
+        else:
+            print(f"Error: Snakemake is not installed or accessible. Please install Snakemake. {e}", file=sys.stderr)
+        return []
     except Exception as e:
+        # Check if it's a storage plugin error and handle it gracefully
+        error_msg = str(e)
+        if "storage-plugin" in error_msg.lower() or "snakemake plugin" in error_msg.lower():
+            print(f"Storage plugin error (this is expected for some test Snakefiles): {e}", file=sys.stderr)
+            return []
         print(f"Error parsing Snakefile with API: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         return []
     finally:
         # Restore original working directory and sys.path

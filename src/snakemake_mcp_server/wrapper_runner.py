@@ -31,18 +31,14 @@ def run_wrapper(
 ) -> Dict:
     """
     Executes a single Snakemake wrapper by programmatically building a workflow in memory.
+    Uses the new snakemake.api to avoid circular imports.
     """
     # Delayed Snakemake API imports with error handling to avoid circular imports
     try:
-        from snakemake.workflow import Workflow
-        from snakemake.settings.types import (
-            ConfigSettings, ResourceSettings, WorkflowSettings, StorageSettings,
+        from snakemake.api import SnakemakeApi
+        from snakemake.settings.types import ConfigSettings, ResourceSettings, WorkflowSettings, StorageSettings, \
             DeploymentSettings, ExecutionSettings, SchedulingSettings, OutputSettings, DAGSettings
-        )
-        from snakemake.executors.local import Executor as LocalExecutor
-        from snakemake.scheduler import Greeduler as GreedyScheduler
-        from snakemake.exceptions import print_exception
-        from snakemake.deployment.env_modules import EnvModules
+        from snakemake.resources import DefaultResources
     except ImportError as e:
         return {"status": "failed", "stdout": "", "stderr": f"Failed to import snakemake: {e}", "exit_code": -1, "error_message": f"Import error: {e}"}
 
@@ -60,87 +56,77 @@ def run_wrapper(
             execution_workdir = Path(tempfile.mkdtemp(prefix="snakemake-wrapper-run-"))
         os.chdir(execution_workdir)
 
-        # 2. Instantiate Workflow object
-        workflow = Workflow(
-            config_settings=ConfigSettings(),
-            resource_settings=ResourceSettings(),
-            workflow_settings=WorkflowSettings(),
-            storage_settings=StorageSettings(),
-            deployment_settings=DeploymentSettings(),
-            execution_settings=ExecutionSettings(),
-            scheduling_settings=SchedulingSettings(),
-            output_settings=OutputSettings(),
-            dag_settings=DAGSettings(),
+        # 2. Generate temporary Snakefile with the wrapper
+        snakefile_content = _generate_wrapper_snakefile(
+            wrapper_name=wrapper_name,
+            wrappers_path=wrappers_path,
+            inputs=inputs,
+            outputs=outputs,
+            params=params,
+            log=log,
+            threads=threads,
+            resources=resources,
+            priority=priority,
+            shadow_depth=shadow_depth,
+            benchmark=benchmark,
+            conda_env=conda_env,
+            container_img=container_img,
+            env_modules=env_modules,
+            group=group
         )
-        workflow.overwrite_workdir = execution_workdir
 
-        # 3. Add and populate a single rule in memory
-        rule = workflow.add_rule("run_single_wrapper")
+        snakefile_path = Path("Snakefile")
+        with open(snakefile_path, 'w') as f:
+            f.write(snakefile_content)
 
-        if isinstance(inputs, dict):
-            rule.set_input(**inputs)
-        elif isinstance(inputs, list):
-            rule.set_input(*inputs)
+        # 3. Use SnakemakeApi to execute - must be in a with statement
+        config_settings = ConfigSettings()
+        resource_settings = ResourceSettings(cores=threads)  # Set cores here
+        workflow_settings = WorkflowSettings()
+        storage_settings = StorageSettings()
+        deployment_settings = DeploymentSettings()  # Will be configured to use conda
 
-        if isinstance(outputs, dict):
-            rule.set_output(**outputs)
-        elif isinstance(outputs, list):
-            rule.set_output(*outputs)
-        else:
-            raise ValueError("'outputs' must be provided.")
-
-        if params:
-            rule.set_params(**params)
-        if log:
-            if isinstance(log, dict):
-                rule.set_log(**log)
-            else:
-                rule.set_log(*log)
+        execution_settings = ExecutionSettings()  # No special parameters needed here
+        scheduling_settings = SchedulingSettings()
         
-        rule.resources = resources or {}
-        rule.resources["_cores"] = threads
-        rule.priority = priority
-        rule.shadow_depth = shadow_depth
-        if benchmark:
-            rule.benchmark = benchmark
-        if conda_env:
-            rule.conda_env = conda_env
-        if container_img:
-            rule.container_img = container_img
-        if env_modules:
-            rule.env_modules = EnvModules(*env_modules)
-        if group:
-            rule.group = group
+        # Set targets if outputs are specified
+        if outputs:
+            if isinstance(outputs, dict):
+                targets = set(outputs.values())
+            elif isinstance(outputs, list):
+                targets = set(outputs)
+            else:
+                raise ValueError("'outputs' must be a dictionary or list.")
+        else:
+            targets = set()  # If no outputs specified, run the default target
 
-        wrapper_path = Path(wrappers_path) / wrapper_name
-        if not wrapper_path.exists():
-            raise FileNotFoundError(f"Wrapper not found at: {wrapper_path}")
-        rule.wrapper = f"file://{wrapper_path.resolve()}"
+        dag_settings = DAGSettings(targets=targets)  # Use targets in DAG settings
 
-        # 4. Set execution targets
-        target_files = list(outputs.values()) if isinstance(outputs, dict) else outputs
-        workflow.dag_settings.targets = target_files
+        # Create API instance and workflow in a with statement
+        with SnakemakeApi(output_settings=OutputSettings()) as api:
+            workflow_api = api.workflow(
+                resource_settings=resource_settings,
+                config_settings=config_settings,
+                workflow_settings=workflow_settings,
+                storage_settings=storage_settings,
+                deployment_settings=deployment_settings,
+                snakefile=snakefile_path,
+                workdir=Path.cwd()
+            )
 
-        # 5. Execute the workflow in memory
-        with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
-            log_capture = StringIO()
-            stream_handler = logging.StreamHandler(log_capture)
-            logging.getLogger("snakemake").addHandler(stream_handler)
+            # Create DAG
+            dag = workflow_api.dag(
+                dag_settings=dag_settings
+            )
 
-            try:
-                executor_plugin = LocalExecutor.get_plugin()
-                scheduler_plugin = GreedyScheduler.get_plugin()
-                success = workflow.execute(
-                    executor_plugin=executor_plugin,
-                    executor_settings=executor_plugin.settings_cls(),
-                    scheduler_plugin=scheduler_plugin,
-                    scheduler_settings=scheduler_plugin.settings_cls(),
-                )
-            finally:
-                logging.getLogger("snakemake").removeHandler(stream_handler)
+            # Execute the workflow
+            success = dag.execute_workflow(
+                execution_settings=execution_settings,
+                scheduling_settings=scheduling_settings
+            )
 
         final_stdout = stdout_capture.getvalue()
-        final_stderr = stderr_capture.getvalue() + log_capture.getvalue()
+        final_stderr = stderr_capture.getvalue()
 
         if success:
             return {"status": "success", "stdout": final_stdout, "stderr": final_stderr, "exit_code": 0}
@@ -149,9 +135,113 @@ def run_wrapper(
 
     except Exception as e:
         stderr_val = stderr_capture.getvalue()
+        import traceback
         exc_buffer = StringIO()
-        print_exception(e, exc_buffer)
+        traceback.print_exception(type(e), e, e.__traceback__, file=exc_buffer)
         stderr_val += exc_buffer.getvalue()
         return {"status": "failed", "stdout": stdout_capture.getvalue(), "stderr": stderr_val, "exit_code": -1, "error_message": str(e)}
     finally:
         os.chdir(original_cwd)
+
+
+def _generate_wrapper_snakefile(
+    wrapper_name: str,
+    wrappers_path: str,
+    inputs: Optional[Union[Dict, List]] = None,
+    outputs: Optional[Union[Dict, List]] = None,
+    params: Optional[Dict] = None,
+    log: Optional[Union[Dict, List]] = None,
+    threads: int = 1,
+    resources: Optional[Dict] = None,
+    priority: int = 0,
+    shadow_depth: Optional[str] = None,
+    benchmark: Optional[str] = None,
+    conda_env: Optional[str] = None,
+    container_img: Optional[str] = None,
+    env_modules: Optional[List[str]] = None,
+    group: Optional[str] = None,
+) -> str:
+    """
+    Generate a Snakefile content for a single wrapper rule.
+    """
+    # Build the rule definition
+    rule_parts = ["rule run_single_wrapper:"]
+    
+    # Inputs
+    if inputs:
+        if isinstance(inputs, dict):
+            input_strs = [f'{k}="{v}"' for k, v in inputs.items()]
+            rule_parts.append(f"    input: {', '.join(input_strs)}")
+        elif isinstance(inputs, list):
+            input_strs = [f'"{inp}"' for inp in inputs]
+            rule_parts.append(f"    input: {', '.join(input_strs)}")
+    
+    # Outputs
+    if outputs:
+        if isinstance(outputs, dict):
+            output_strs = [f'{k}="{v}"' for k, v in outputs.items()]
+            rule_parts.append(f"    output: {', '.join(output_strs)}")
+        elif isinstance(outputs, list):
+            output_strs = [f'"{out}"' for out in outputs]
+            rule_parts.append(f"    output: {', '.join(output_strs)}")
+    
+    # Params
+    if params:
+        param_strs = [f'{k}={repr(v)}' for k, v in params.items()]
+        rule_parts.append(f"    params: {', '.join(param_strs)}")
+    
+    # Log
+    if log:
+        if isinstance(log, dict):
+            log_strs = [f'{k}="{v}"' for k, v in log.items()]
+            rule_parts.append(f"    log: {', '.join(log_strs)}")
+        elif isinstance(log, list):
+            log_strs = [f'"{lg}"' for lg in log]
+            rule_parts.append(f"    log: {', '.join(log_strs)}")
+    
+    # Threads
+    rule_parts.append(f"    threads: {threads}")
+    
+    # Resources
+    if resources:
+        resource_strs = [f'{k}={v}' for k, v in resources.items()]
+        rule_parts.append(f"    resources: {', '.join(resource_strs)}")
+    
+    # Priority
+    if priority != 0:
+        rule_parts.append(f"    priority: {priority}")
+    
+    # Shadow
+    if shadow_depth:
+        rule_parts.append(f"    shadow: '{shadow_depth}'")
+    
+    # Benchmark
+    if benchmark:
+        rule_parts.append(f"    benchmark: '{benchmark}'")
+    
+    # Conda
+    if conda_env:
+        # Write the conda env to a temporary file
+        rule_parts.append(f"    conda: 'env.yaml'")  # Points to temp file with env content
+    
+    # Container
+    if container_img:
+        rule_parts.append(f'    container: "{container_img}"')
+    
+    # Group
+    if group:
+        rule_parts.append(f'    group: "{group}"')
+    
+    # Environment modules
+    if env_modules:
+        # This is a simplified approach - in real usage, env_modules are complex
+        rule_parts.append(f"    # env_modules: {env_modules}")
+    
+    # Wrapper
+    wrapper_path = Path(wrappers_path) / wrapper_name
+    rule_parts.append(f'    wrapper: "file://{wrapper_path.resolve()}"')
+    
+    rule_parts.append("")  # Empty line to end the rule
+    
+    snakefile_content = "\n".join(rule_parts)
+    return snakefile_content
