@@ -48,12 +48,25 @@ def run_wrapper(
 
     try:
         # 1. Prepare working directory
+        # Always use a temporary directory for execution to avoid modifying original files
+        import tempfile
+        execution_workdir = Path(tempfile.mkdtemp(prefix="snakemake-wrapper-run-"))
+        
+        # If a specific workdir was provided, copy necessary files to the temp dir
         if workdir:
-            execution_workdir = Path(workdir).resolve()
-            os.makedirs(execution_workdir, exist_ok=True)
+            original_workdir = Path(workdir).resolve()
+            # Copy all files from original workdir to the temporary directory
+            import shutil
+            for item in original_workdir.iterdir():
+                source = original_workdir / item.name
+                destination = execution_workdir / item.name
+                if source.is_dir():
+                    shutil.copytree(source, destination)
+                else:
+                    shutil.copy2(source, destination)
         else:
-            import tempfile
-            execution_workdir = Path(tempfile.mkdtemp(prefix="snakemake-wrapper-run-"))
+            original_workdir = None
+            
         os.chdir(execution_workdir)
 
         # 2. Generate temporary Snakefile with the wrapper

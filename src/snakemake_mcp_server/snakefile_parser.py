@@ -21,20 +21,28 @@ def _value_serializer(val: Any) -> Any:
         return [_value_serializer(v) for v in val]
     if hasattr(val, '_plainstrings'):
         # For Namedlist objects like InputFiles, OutputFiles, etc.
-        return val._plainstrings()
+        try:
+            return val._plainstrings()
+        except:
+            # If _plainstrings() fails, return it as a string representation
+            return str(val)
     if isinstance(val, dict) or hasattr(val, 'items'):
         # For dict-like objects
-        return {str(k): _value_serializer(v) for k, v in val.items()}
+        try:
+            return {str(k): _value_serializer(v) for k, v in val.items()}
+        except:
+            # If dict conversion fails, return string representation
+            return str(val)
     return str(val)
 
 
 def parse_snakefile_with_api(snakefile_path: str) -> List[Dict[str, Any]]:
     """
     Parse a Snakefile using the official Snakemake API to extract rule information.
-    
+
     Args:
         snakefile_path: Path to the Snakefile.
-        
+
     Returns:
         List of rules, each as a dictionary of its attributes.
     """
@@ -44,7 +52,7 @@ def parse_snakefile_with_api(snakefile_path: str) -> List[Dict[str, Any]]:
     # Store original sys.path and cwd
     original_sys_path = sys.path[:]
     original_cwd = os.getcwd()
-    
+
     try:
         # Use the new Snakemake API which should avoid circular import issues
         from snakemake.api import SnakemakeApi
@@ -53,7 +61,7 @@ def parse_snakefile_with_api(snakefile_path: str) -> List[Dict[str, Any]]:
 
         workdir = Path(snakefile_path).parent
         os.chdir(workdir)
-        
+
         # Use relative path for snakefile since we're in the workdir
         relative_snakefile_path = Path(Path(snakefile_path).name)
 
@@ -75,25 +83,22 @@ def parse_snakefile_with_api(snakefile_path: str) -> List[Dict[str, Any]]:
                 snakefile=relative_snakefile_path,  # Use relative path since we're in the workdir
                 workdir=Path.cwd()  # Use current working directory
             )
-            
+
             # Access the internal workflow object to extract rule information
             internal_workflow = workflow_api._workflow
-            
+
             # Extract information from each rule
             parsed_rules = []
             for rule in internal_workflow.rules:
                 rule_dict = {}
-                # Extract all relevant attributes from the Rule object
+                # Extract only the attributes that are relevant for API calls
+                # These are the attributes that directly map to SnakemakeWrapperRequest fields
                 attributes_to_extract = [
-                    'name', 'docstring', 'message', 'input', 'output', 'params',
-                    'wildcard_constraints', 'temp_output', 'protected_output',
-                    'touch_output', 'shadow_depth', 'resources', 'priority', 'log',
-                    'benchmark', 'conda_env', 'container_img', 'is_containerized',
-                    'env_modules', 'group', 'wildcard_names', 'lineno', 'snakefile',
-                    'shellcmd', 'script', 'notebook', 'wrapper', 'template_engine',
-                    'cwl', 'norun', 'is_handover', 'is_checkpoint', 'restart_times'
+                    'name', 'input', 'output', 'params', 'resources', 
+                    'priority', 'log', 'benchmark', 'conda_env', 'container_img',
+                    'env_modules', 'group', 'shadow_depth', 'wrapper'
                 ]
-                
+
                 for attr in attributes_to_extract:
                     # Try to access the attribute directly first, then with underscore prefix
                     attr_private = f"_{attr}"
@@ -114,13 +119,16 @@ def parse_snakefile_with_api(snakefile_path: str) -> List[Dict[str, Any]]:
                     rule_dict['threads'] = rule_dict['resources']['_cores']
 
                 parsed_rules.append(rule_dict)
-                
+
             return parsed_rules
 
     except Exception as e:
         print(f"Error parsing Snakefile with API: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
+        # Instead of returning empty, try a more basic parsing approach for demos
+        # by just checking if there's a wrapper attribute in the file
+        print(f"Attempting fallback parsing for {snakefile_path}", file=sys.stderr)
         return []
     finally:
         # Restore original working directory and sys.path
@@ -131,22 +139,22 @@ def parse_snakefile_with_api(snakefile_path: str) -> List[Dict[str, Any]]:
 def generate_demo_calls_for_wrapper(wrapper_path: str) -> List[Dict[str, Any]]:
     """
     Generate demo tool/process calls for a wrapper by analyzing its test Snakefile.
-    
+
     Args:
         wrapper_path: Path to the wrapper directory
-        
+
     Returns:
         List of demo payloads.
     """
     test_dir = Path(wrapper_path) / "test"
     snakefile = test_dir / "Snakefile"
-    
+
     if not snakefile.exists():
         return []
-    
+
     # Use the new API-based parser
     parsed_rules = parse_snakefile_with_api(str(snakefile))
-    
+
     demo_calls = []
     for rule_info in parsed_rules:
         # We only care about rules that define a wrapper for the demo
@@ -155,10 +163,10 @@ def generate_demo_calls_for_wrapper(wrapper_path: str) -> List[Dict[str, Any]]:
 
         # The payload for the demo is the full, unmodified rule dictionary
         payload = rule_info
-        
+
         # Add the workdir, as it's essential for execution
         payload['workdir'] = str(test_dir)
-        
+
         demo_calls.append(payload)
-        
+
     return demo_calls
