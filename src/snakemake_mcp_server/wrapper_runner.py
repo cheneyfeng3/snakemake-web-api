@@ -48,6 +48,10 @@ def run_wrapper(
     original_cwd = os.getcwd()
     snakefile_path = None  # Initialize to ensure it's available in finally block
 
+    # Defensively resolve wrappers_path to an absolute path BEFORE changing directory.
+    # This makes the function robust regardless of how it's called.
+    abs_wrappers_path = Path(wrappers_path).resolve()
+
     try:
         # 1. Prepare working directory
         # As per request, run in the original workdir if provided
@@ -65,7 +69,7 @@ def run_wrapper(
             snakefile_path = Path(tmp_snakefile.name)
             snakefile_content = _generate_wrapper_snakefile(
                 wrapper_name=wrapper_name,
-                wrappers_path=wrappers_path,
+                wrappers_path=str(abs_wrappers_path),  # Pass the absolute path
                 inputs=inputs,
                 outputs=outputs,
                 params=params,
@@ -87,7 +91,9 @@ def run_wrapper(
         resource_settings = ResourceSettings(cores=threads)  # Set cores here
         workflow_settings = WorkflowSettings()
         storage_settings = StorageSettings()
-        deployment_settings = DeploymentSettings()  # Will be configured to use conda
+        deployment_settings = DeploymentSettings()
+        if conda_env:
+            deployment_settings.use_conda = True
 
         execution_settings = ExecutionSettings()  # No special parameters needed here
         scheduling_settings = SchedulingSettings()
@@ -176,6 +182,10 @@ def _generate_wrapper_snakefile(
     # Build the rule definition
     rule_parts = ["rule run_single_wrapper:"]
     
+    # Remove "master/" prefix from wrapper_name if it exists, as per user's instruction
+    if wrapper_name.startswith("master/"):
+        wrapper_name = wrapper_name[len("master/"):]
+
     # Inputs
     if inputs:
         if isinstance(inputs, dict):
@@ -242,8 +252,8 @@ def _generate_wrapper_snakefile(
     
     # Conda
     if conda_env:
-        # Write the conda env to a temporary file
-        rule_parts.append(f"    conda: 'env.yaml'")  # Points to temp file with env content
+        # Use the actual path to the conda env file
+        rule_parts.append(f"    conda: '{conda_env}'")
     
     # Container
     if container_img:
