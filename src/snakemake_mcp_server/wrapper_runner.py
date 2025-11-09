@@ -1,5 +1,6 @@
 import os
 import sys
+import shutil
 import logging
 from pathlib import Path
 from typing import Union, Dict, List, Optional
@@ -217,8 +218,20 @@ def _generate_wrapper_snakefile(
     
     # Resources
     if resources:
-        resource_strs = [f'{k}={v}' for k, v in resources.items()]
-        rule_parts.append(f"    resources: {', '.join(resource_strs)}")
+        # Filter out callable values and handle them specially
+        processed_resources = []
+        for k, v in resources.items():
+            if callable(v):
+                # Skip callable resources or assign a default value
+                # For tmpdir and other callable resources, we'll skip them
+                continue
+            elif isinstance(v, str) and v == "<callable>":
+                # Skip resources that were converted to <callable> string
+                continue
+            else:
+                processed_resources.append(f'{k}={v}')
+        if processed_resources:
+            rule_parts.append(f"    resources: {', '.join(processed_resources)}")
     
     # Priority
     if priority != 0:

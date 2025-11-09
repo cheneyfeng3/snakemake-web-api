@@ -229,9 +229,22 @@ async def test_all_wrapper_demos_integration(rest_client):
                 
                 # Check if the call was successful
                 if demo_response.status_code == 200:
-                    logging.info(f"  Demo {j+1}: {endpoint} - SUCCESS (Status: {demo_response.status_code})")
-                    wrapper_demo_success_count += 1
-                    successful_demos += 1
+                    # Check the actual response content to ensure tool execution was successful
+                    response_data = demo_response.json()
+                    execution_status = response_data.get('status', 'unknown')
+                    
+                    if execution_status == 'success':
+                        logging.info(f"  Demo {j+1}: {endpoint} - SUCCESS (Execution: {execution_status})")
+                        wrapper_demo_success_count += 1
+                        successful_demos += 1
+                    else:
+                        error_msg = f"  Demo {j+1}: {endpoint} - EXECUTION FAILED (Status: {execution_status})"
+                        error_details = f"    Response: {response_data}"
+                        logging.error(error_msg)
+                        logging.error(error_details)
+                        all_errors.extend([error_msg, error_details])
+                        wrapper_demo_fail_count += 1
+                        failed_demos += 1
                 elif demo_response.status_code == 422:
                     # Print the validation error details to help debug the issue
                     error_detail = f"  Demo {j+1}: {endpoint} - VALIDATION ERROR (Status: {demo_response.status_code})"
