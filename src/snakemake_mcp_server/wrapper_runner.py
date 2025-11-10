@@ -23,7 +23,6 @@ async def run_wrapper(
     priority: int = 0,
     shadow_depth: Optional[str] = None,
     benchmark: Optional[str] = None,
-    conda_env: Optional[str] = None,
     container_img: Optional[str] = None,
     env_modules: Optional[List[str]] = None,
     group: Optional[str] = None,
@@ -49,6 +48,20 @@ async def run_wrapper(
             return {"status": "failed", "stdout": "", "stderr": "A 'wrapper_name' must be provided for execution.", "exit_code": -1, "error_message": "wrapper_name must be a non-empty string."}
 
         execution_workdir = Path(workdir).resolve()
+
+        # --- Conda Environment Discovery and Copying ---
+        resolved_conda_env_path_for_snakefile = None
+        conda_env_filename = "environment.yaml"
+        potential_conda_env_path = abs_wrappers_path / wrapper_name / conda_env_filename
+
+        if potential_conda_env_path.exists():
+            # Copy environment.yaml to the execution_workdir
+            shutil.copy(potential_conda_env_path, execution_workdir / conda_env_filename)
+            resolved_conda_env_path_for_snakefile = conda_env_filename # Use relative path within workdir
+            logger.debug(f"Conda environment {potential_conda_env_path} copied to {execution_workdir / conda_env_filename}")
+        else:
+            logger.debug(f"No environment.yaml found for wrapper {wrapper_name} at {potential_conda_env_path}")
+        # --- End Conda Environment Discovery ---
 
         # Pre-emptively create log directories to handle buggy wrappers
         if log:
@@ -82,7 +95,7 @@ async def run_wrapper(
                 priority=priority,
                 shadow_depth=shadow_depth,
                 benchmark=benchmark,
-                conda_env=conda_env,
+                conda_env_path_for_snakefile=resolved_conda_env_path_for_snakefile, # Pass the relative path
                 container_img=container_img,
                 env_modules=env_modules,
                 group=group
@@ -114,7 +127,7 @@ async def run_wrapper(
             "--wrapper-prefix", str(abs_wrappers_path) + os.sep # Add wrapper prefix with trailing slash
         ]
 
-        if conda_env and conda_env.strip(): # Check if not empty or just whitespace
+        if resolved_conda_env_path_for_snakefile: # Use the resolved path to decide if --use-conda is needed
             cmd_list.append("--use-conda")
 
         # Add targets if they exist
@@ -179,7 +192,7 @@ def _generate_wrapper_snakefile(
     priority: int = 0,
     shadow_depth: Optional[str] = None,
     benchmark: Optional[str] = None,
-    conda_env: Optional[str] = None,
+    conda_env_path_for_snakefile: Optional[str] = None,
     container_img: Optional[str] = None,
     env_modules: Optional[List[str]] = None,
     group: Optional[str] = None,
@@ -261,9 +274,8 @@ def _generate_wrapper_snakefile(
         rule_parts.append(f"    benchmark: '{benchmark}'")
     
     # Conda
-    if conda_env:
-        # Use the actual path to the conda env file
-        rule_parts.append(f"    conda: '{conda_env}'")
+    if conda_env_path_for_snakefile:
+        rule_parts.append(f"    conda: '{conda_env_path_for_snakefile}'")
     
     # Container
     if container_img:

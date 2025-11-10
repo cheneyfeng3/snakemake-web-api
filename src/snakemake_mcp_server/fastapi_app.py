@@ -52,7 +52,6 @@ class SnakemakeWrapperRequest(BaseModel):
     priority: int = 0
     shadow_depth: Optional[str] = None
     benchmark: Optional[str] = None
-    conda_env: Optional[str] = None
     container_img: Optional[str] = None
     env_modules: Optional[List[str]] = None
     group: Optional[str] = None
@@ -145,7 +144,6 @@ async def run_snakemake_job_in_background(job_id: str, request: SnakemakeWrapper
             priority=request.priority,
             shadow_depth=request.shadow_depth,
             benchmark=request.benchmark,
-            conda_env=request.conda_env,
             container_img=request.container_img,
             env_modules=request.env_modules,
             group=request.group,
@@ -357,7 +355,6 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
             inputs=[input_file_name], # Relative to workdir
             outputs=[output_file_name], # Relative to workdir
             workdir=str(temp_dir_path), # Absolute path to the temporary workdir
-            conda_env=str(Path(wrappers_path) / "bio/samtools/faidx/environment.yaml")
         )
         
         # Generate a curl example

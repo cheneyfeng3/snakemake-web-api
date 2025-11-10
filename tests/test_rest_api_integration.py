@@ -10,6 +10,7 @@ from snakemake_mcp_server.fastapi_app import create_native_fastapi_app
 import tempfile
 import time
 from pathlib import Path
+import shutil
 
 
 @pytest.fixture
@@ -136,22 +137,83 @@ async def test_direct_fastapi_demo_structure_validation(rest_client):
 
 @pytest.mark.asyncio
 async def test_direct_fastapi_demo_case_endpoint(rest_client):
-    """Test the /demo-case endpoint to ensure it returns the expected structure."""
+    """
+    Test the /demo-case endpoint to ensure it returns a runnable structure,
+    then executes the returned payload and verifies the outcome.
+    """
+    # 1. Get the demo case from the /demo-case endpoint
     response = rest_client.get("/demo-case")
     
     assert response.status_code == 200
-    result = response.json()
+    demo_case_response = response.json()
     
-    assert "method" in result
-    assert "endpoint" in result
-    assert "payload" in result
-    assert "curl_example" in result
+    assert "method" in demo_case_response
+    assert "endpoint" in demo_case_response
+    assert "payload" in demo_case_response
+    assert "curl_example" in demo_case_response
     
-    assert result["method"] == "POST"
-    assert result["endpoint"] == "/tool-processes"
-    assert result["payload"]["wrapper_name"] == "bio/samtools/faidx"
+    assert demo_case_response["method"] == "POST"
+    assert demo_case_response["endpoint"] == "/tool-processes"
+    assert demo_case_response["payload"]["wrapper_name"] == "bio/samtools/faidx"
     
-    print("Direct FastAPI /demo-case endpoint validated.")
+    print("\nDirect FastAPI /demo-case endpoint validated for structure.")
+
+    # 2. Extract payload and prepare for execution
+    payload = demo_case_response["payload"]
+    workdir = Path(payload["workdir"])
+    input_file_name = payload["inputs"][0]
+    output_file_name = payload["outputs"][0]
+
+    input_file_full_path = workdir / input_file_name
+    output_file_full_path = workdir / output_file_name
+
+    # Ensure the input file exists in the workdir provided by the demo-case
+    # The /demo-case endpoint already creates a dummy file, but we re-assert its content
+    assert input_file_full_path.exists()
+    assert input_file_full_path.read_text() == ">chr1\nAGCTAGCTAGCTAGCT\n>chr2\nTCGATCGATCGA\n"
+
+    try:
+        # 3. Submit the job using the extracted payload
+        submit_response = rest_client.post(demo_case_response["endpoint"], json=payload)
+        assert submit_response.status_code == 202
+        submission_data = submit_response.json()
+        job_id = submission_data["job_id"]
+        status_url = submission_data["status_url"]
+
+        print(f"Submitted demo job ID: {job_id}")
+        print(f"Demo job Status URL: {status_url}")
+
+        # 4. Poll job status
+        max_attempts = 60
+        attempts = 0
+        job_status = None
+        job_status_data = {}
+        while attempts < max_attempts:
+            time.sleep(1) # Wait for 1 second before polling again
+            status_check_response = rest_client.get(status_url)
+            assert status_check_response.status_code == 200
+            job_status_data = status_check_response.json()
+            job_status = job_status_data["status"]
+
+            print(f"Polling demo job {job_id}, status: {job_status}")
+
+            if job_status in ["completed", "failed"]:
+                break
+            attempts += 1
+        
+        assert job_status == "completed", f"Demo job failed or timed out. Final status: {job_status}, Result: {job_status_data.get('result')}"
+
+        # 5. Verify output file
+        time.sleep(2) # Give a small delay to ensure file system is updated
+        assert output_file_full_path.exists(), f"Output file {output_file_full_path} was not created by demo job."
+        assert output_file_full_path.read_text() == "chr1\t16\t6\t16\t17\nchr2\t12\t29\t12\t13\n"
+        print(f"Output file {output_file_full_path} from demo job verified.")
+
+    finally:
+        # 6. Clean up the temporary directory created by /demo-case
+        if workdir.exists():
+            shutil.rmtree(workdir)
+            print(f"Cleaned up temporary directory: {workdir}")
 
 
 @pytest.mark.asyncio
@@ -181,8 +243,7 @@ async def test_samtools_faidx_wrapper_full_flow(rest_client):
             "wrapper_name": "bio/samtools/faidx",
             "inputs": [input_file_name],
             "outputs": [output_file_name],
-            "workdir": str(tmp_path), # Pass the absolute path of the temporary directory as workdir
-            "conda_env": "/root/snakemake-mcp-server/snakebase/snakemake-wrappers/bio/samtools/faidx/environment.yaml"
+            "workdir": str(tmp_path) # Pass the absolute path of the temporary directory as workdir
         }
 
         # Submit the job

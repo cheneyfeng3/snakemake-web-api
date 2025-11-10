@@ -68,8 +68,7 @@ async def test_samtools_faidx_self_contained(self_contained_faidx_data, wrappers
         inputs=[input_file],
         outputs=[output_file],
         wrappers_path=wrappers_path,
-        workdir=os.path.dirname(input_file), # Pass workdir explicitly
-        conda_env=os.path.join(wrappers_path, "bio/samtools/faidx/environment.yaml")
+        workdir=os.path.dirname(input_file) # Pass workdir explicitly
     )
     
     assert result["status"] == "success"
@@ -98,8 +97,7 @@ async def test_arriba_local_data(arriba_data, wrappers_path):
         },
         threads=2,
         wrappers_path=wrappers_path,
-        workdir=os.path.dirname(fusions_file), # Pass workdir explicitly
-        conda_env=os.path.join(wrappers_path, "bio/arriba/environment.yaml")
+        workdir=os.path.dirname(fusions_file) # Pass workdir explicitly
     )
     
     assert result["status"] == "success"
