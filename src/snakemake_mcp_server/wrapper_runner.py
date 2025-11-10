@@ -127,6 +127,7 @@ async def run_wrapper(
                 raise ValueError("'outputs' must be a dictionary or list.")
             cmd_list.extend(targets)
 
+        logger.debug(f"Snakemake command list: {cmd_list}") # This is the line I moved
         process = await asyncio.create_subprocess_exec(
             *cmd_list,
             stdout=asyncio.subprocess.PIPE,
@@ -278,8 +279,7 @@ def _generate_wrapper_snakefile(
         rule_parts.append(f"    # env_modules: {env_modules}")
     
     # Wrapper
-    wrapper_full_path = Path(wrappers_path) / wrapper_name
-    rule_parts.append(f'    wrapper: "file://{wrapper_full_path.resolve()}"')
+    rule_parts.append(f'    wrapper: "{wrapper_name}"')
     
     rule_parts.append("")  # Empty line to end the rule
     
