@@ -42,8 +42,7 @@ async def test_direct_fastapi_wrapper_execution(rest_client):
     response = rest_client.post("/tool-processes", json={
         "wrapper_name": "bio/fastqc",
         "inputs": ["test.fastq"],
-        "outputs": ["test_fastqc.html", "test_fastqc.zip"],
-        "params": {"dir": "/tmp"}
+        "outputs": ["test_fastqc.html", "test_fastqc.zip"]
     })
     
     assert response.status_code in [200, 202, 422]  # 422 is expected if files don't exist
@@ -158,19 +157,13 @@ async def test_direct_fastapi_demo_case_endpoint(rest_client):
     
     print("\nDirect FastAPI /demo-case endpoint validated for structure.")
 
-    # 2. Extract payload and prepare for execution
+        # 2. Extract payload and prepare for execution
     payload = demo_case_response["payload"]
-    workdir = Path(payload["workdir"])
+    
+    # The workdir and input file are created by the /tool-processes endpoint.
+    # We will get the actual workdir and output file path from the job result.
     input_file_name = payload["inputs"][0]
     output_file_name = payload["outputs"][0]
-
-    input_file_full_path = workdir / input_file_name
-    output_file_full_path = workdir / output_file_name
-
-    # Ensure the input file exists in the workdir provided by the demo-case
-    # The /demo-case endpoint already creates a dummy file, but we re-assert its content
-    assert input_file_full_path.exists()
-    assert input_file_full_path.read_text() == ">chr1\nAGCTAGCTAGCTAGCT\n>chr2\nTCGATCGATCGA\n"
 
     try:
         # 3. Submit the job using the extracted payload
@@ -203,6 +196,12 @@ async def test_direct_fastapi_demo_case_endpoint(rest_client):
         
         assert job_status == "completed", f"Demo job failed or timed out. Final status: {job_status}, Result: {job_status_data.get('result')}"
 
+        # Extract workdir and output file path from the job result
+        job_result = job_status_data["result"]
+        assert "output_files" in job_result and len(job_result["output_files"]) > 0
+        output_file_full_path = Path(job_result["output_files"][0])
+        workdir = output_file_full_path.parent # The workdir is the parent of the output file
+
         # 5. Verify output file
         time.sleep(2) # Give a small delay to ensure file system is updated
         assert output_file_full_path.exists(), f"Output file {output_file_full_path} was not created by demo job."
@@ -211,7 +210,8 @@ async def test_direct_fastapi_demo_case_endpoint(rest_client):
 
     finally:
         # 6. Clean up the temporary directory created by /demo-case
-        if workdir.exists():
+        # The workdir is now derived from the output_file_full_path
+        if 'workdir' in locals() and workdir.exists():
             shutil.rmtree(workdir)
             print(f"Cleaned up temporary directory: {workdir}")
 
@@ -221,63 +221,59 @@ async def test_samtools_faidx_wrapper_full_flow(rest_client):
     """
     End-to-end test for running the 'bio/samtools/faidx' wrapper through the
     /tool-processes endpoint, verifying job status and output file creation.
+    This test now relies on the /tool-processes endpoint to create dummy input files.
     """
-    # Use the wrappers_path from the fixture setup, which is "./snakebase"
-    wrappers_path = "./snakebase/snakemake-wrappers" # This is passed to create_native_fastapi_app, so it's the base for conda_env
+    # Construct the UserSnakemakeWrapperRequest payload
+    payload = {
+        "wrapper_name": "bio/samtools/faidx",
+        "inputs": ["genome.fasta"],
+        "outputs": ["genome.fasta.fai"],
+    }
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_path = Path(tmpdir)
-        input_file_name = "genome.fasta"
-        output_file_name = "genome.fasta.fai"
-        
-        input_file_full_path = tmp_path / input_file_name
-        output_file_full_path = tmp_path / output_file_name
+    # Submit the job
+    response = rest_client.post("/tool-processes", json=payload)
+    assert response.status_code == 202
+    submission_response = response.json()
+    job_id = submission_response["job_id"]
+    status_url = submission_response["status_url"]
 
-        # Create dummy input file
-        input_file_full_path.write_text(">chr1\nACGTACGT\n>chr2\nTGCA\n")
+    print(f"\nSubmitted job ID: {job_id}")
+    print(f"Status URL: {status_url}")
 
-        # Construct the SnakemakeWrapperRequest payload
-        # inputs and outputs are relative to the 'workdir'
-        # The wrapper_name should be relative to the wrappers_path
-        payload = {
-            "wrapper_name": "bio/samtools/faidx",
-            "inputs": [input_file_name],
-            "outputs": [output_file_name],
-            "workdir": str(tmp_path) # Pass the absolute path of the temporary directory as workdir
-        }
+    # Poll job status
+    max_attempts = 60
+    attempts = 0
+    job_status = None
+    job_status_data = {}
+    while attempts < max_attempts:
+        time.sleep(1) # Wait for 1 second before polling again
+        status_response = rest_client.get(status_url)
+        assert status_response.status_code == 200
+        job_status_data = status_response.json()
+        job_status = job_status_data["status"]
 
-        # Submit the job
-        response = rest_client.post("/tool-processes", json=payload)
-        assert response.status_code == 202
-        submission_response = response.json()
-        job_id = submission_response["job_id"]
-        status_url = submission_response["status_url"]
+        print(f"Polling job {job_id}, status: {job_status}")
 
-        print(f"\nSubmitted job ID: {job_id}")
-        print(f"Status URL: {status_url}")
+        if job_status in ["completed", "failed"]:
+            break
+        attempts += 1
+    
+    assert job_status == "completed", f"Job failed or timed out. Final status: {job_status}, Result: {job_status_data.get('result')}"
 
-        # Poll job status
-        max_attempts = 60
-        attempts = 0
-        job_status = None
-        while attempts < max_attempts:
-            time.sleep(1) # Wait for 1 second before polling again
-            status_response = rest_client.get(status_url)
-            assert status_response.status_code == 200
-            job_status_data = status_response.json()
-            job_status = job_status_data["status"]
+    # Extract workdir and output file path from the job result
+    job_result = job_status_data["result"]
+    assert "output_files" in job_result and len(job_result["output_files"]) > 0
+    output_file_full_path = Path(job_result["output_files"][0])
+    workdir = output_file_full_path.parent # The workdir is the parent of the output file
 
-            print(f"Polling job {job_id}, status: {job_status}")
+    # Verify output file
+    # Give a small delay to ensure file system is updated
+    time.sleep(2)
+    assert output_file_full_path.exists(), f"Output file {output_file_full_path} was not created."
+    assert output_file_full_path.read_text() == "chr1\t16\t6\t16\t17\nchr2\t12\t29\t12\t13\n"
+    print(f"Output file {output_file_full_path} verified.")
 
-            if job_status in ["completed", "failed"]:
-                break
-            attempts += 1
-        
-        assert job_status == "completed", f"Job failed or timed out. Final status: {job_status}, Result: {job_status_data.get('result')}"
-
-        # Verify output file
-        # Give a small delay to ensure file system is updated
-        time.sleep(2)
-        assert output_file_full_path.exists(), f"Output file {output_file_full_path} was not created."
-        assert output_file_full_path.read_text() == "chr1\t8\t6\t8\t9\nchr2\t4\t21\t4\t5\n"
-        print(f"Output file {output_file_full_path} verified.")
+    # Clean up the temporary directory created by the server
+    if workdir.exists():
+        shutil.rmtree(workdir)
+        print(f"Cleaned up temporary directory: {workdir}")

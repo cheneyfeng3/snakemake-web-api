@@ -58,6 +58,13 @@ class SnakemakeWrapperRequest(BaseModel):
     workdir: Optional[str] = None
 
 
+class UserSnakemakeWrapperRequest(BaseModel):
+    wrapper_name: str
+    inputs: Optional[Union[Dict, List]] = None
+    outputs: Optional[Union[Dict, List]] = None
+    params: Optional[Dict] = None
+
+
 class SnakemakeWorkflowRequest(BaseModel):
     workflow_name: str
     inputs: Optional[Union[Dict, List]] = None
@@ -222,7 +229,7 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
     app.state.workflows_dir = workflows_dir
     
     @app.post("/tool-processes", response_model=JobSubmissionResponse, status_code=status.HTTP_202_ACCEPTED, operation_id="tool_process")
-    async def tool_process_endpoint(request: SnakemakeWrapperRequest, background_tasks: BackgroundTasks, response: Response):
+    async def tool_process_endpoint(request: UserSnakemakeWrapperRequest, background_tasks: BackgroundTasks, response: Response):
         """
         Process a Snakemake tool by name and returns the result.
         """
@@ -231,11 +238,72 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
         if not request.wrapper_name:
             raise HTTPException(status_code=400, detail="'wrapper_name' must be provided for tool execution.")
 
+        # 1. Load WrapperMetadata to infer hidden parameters
+        wrapper_metadata_list = load_wrapper_metadata(app.state.wrappers_path)
+        wrapper_meta = next((wm for wm in wrapper_metadata_list if wm.path == request.wrapper_name), None)
+
+        if not wrapper_meta:
+            raise HTTPException(status_code=404, detail=f"Wrapper '{request.wrapper_name}' not found.")
+
+        # 2. Dynamically generate workdir
+        temp_dir = tempfile.mkdtemp()
+        workdir_path = Path(temp_dir).resolve()
+        workdir = str(workdir_path)
+        logger.debug(f"Generated workdir: {workdir}")
+
+        # 3. Create dummy input files in the workdir based on request.inputs
+        if request.inputs:
+            if isinstance(request.inputs, list):
+                for input_file_name in request.inputs:
+                    # Assuming simple file names for dummy creation
+                    dummy_input_path = workdir_path / input_file_name
+                    dummy_input_path.parent.mkdir(parents=True, exist_ok=True)
+                    # Provide a simple dummy FASTA content for testing samtools faidx
+                    dummy_input_path.write_text(">chr1\nAGCTAGCTAGCTAGCT\n>chr2\nTCGATCGATCGA\n")
+                    logger.debug(f"Created dummy input file: {dummy_input_path}")
+            # Add handling for dict inputs if necessary, but for now, list is sufficient for demo
+            elif isinstance(request.inputs, dict):
+                for input_file_name in request.inputs.values():
+                    dummy_input_path = workdir_path / input_file_name
+                    dummy_input_path.parent.mkdir(parents=True, exist_ok=True)
+                    dummy_input_path.write_text(">chr1\nAGCTAGCTAGCTAGCT\n>chr2\nTCGATCGATCGA\n")
+                    logger.debug(f"Created dummy input file: {dummy_input_path}")
+
+        # 4. Infer values for hidden parameters from WrapperMetadata or use defaults
+        #    Default to None if not found in metadata, as per user's instruction.
+        inferred_log = wrapper_meta.log
+        inferred_threads = wrapper_meta.threads if wrapper_meta.threads is not None else 1
+        inferred_resources = wrapper_meta.resources
+        inferred_priority = wrapper_meta.priority if wrapper_meta.priority is not None else 0
+        inferred_shadow_depth = wrapper_meta.shadow_depth
+        inferred_benchmark = wrapper_meta.benchmark
+        inferred_container_img = wrapper_meta.container_img
+        inferred_env_modules = wrapper_meta.env_modules
+        inferred_group = wrapper_meta.group
+
+        # 5. Construct the full internal SnakemakeWrapperRequest
+        internal_request = SnakemakeWrapperRequest(
+            wrapper_name=request.wrapper_name,
+            inputs=request.inputs,
+            outputs=request.outputs,
+            params=request.params,
+            log=inferred_log,
+            threads=inferred_threads,
+            resources=inferred_resources,
+            priority=inferred_priority,
+            shadow_depth=inferred_shadow_depth,
+            benchmark=inferred_benchmark,
+            container_img=inferred_container_img,
+            env_modules=inferred_env_modules,
+            group=inferred_group,
+            workdir=workdir, # Use the dynamically generated workdir
+        )
+
         job_id = str(uuid.uuid4())
         job = Job(job_id=job_id, status=JobStatus.ACCEPTED, created_time=datetime.now(timezone.utc))
         job_store[job_id] = job
 
-        background_tasks.add_task(run_snakemake_job_in_background, job_id, request, app.state.wrappers_path)
+        background_tasks.add_task(run_snakemake_job_in_background, job_id, internal_request, app.state.wrappers_path)
         
         status_url = f"/tool-processes/{job_id}"
         response.headers["Location"] = status_url
@@ -348,42 +416,36 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
         Provides a demo case for running the 'bio/samtools/faidx' wrapper via the /tool-processes endpoint,
         including the request payload and a curl example.
         
-        Note: This endpoint creates a temporary directory and a dummy input file on the server
-        to generate a runnable example. The temporary directory will need to be manually cleaned up
-        after use (e.g., by running `rm -rf <path_to_temp_dir>`).
+        The /tool-processes endpoint will be responsible for creating any necessary dummy input files.
         """
-        # Create a temporary directory for the demo
-        temp_dir = tempfile.mkdtemp()
-        temp_dir_path = Path(temp_dir)
-
         # Define input and output file names relative to the workdir
         input_file_name = "genome.fasta"
         output_file_name = "genome.fasta.fai"
 
-        # Create a dummy input file inside the temporary directory
-        input_file_full_path = temp_dir_path / input_file_name
-        input_file_full_path.write_text(">chr1\nAGCTAGCTAGCTAGCT\n>chr2\nTCGATCGATCGA\n")
-
-        # Construct the SnakemakeWrapperRequest payload
-        payload = SnakemakeWrapperRequest(
+        # Construct the UserSnakemakeWrapperRequest payload
+        user_payload = UserSnakemakeWrapperRequest(
             wrapper_name="bio/samtools/faidx",
             inputs=[input_file_name], # Relative to workdir
             outputs=[output_file_name], # Relative to workdir
-            workdir=str(temp_dir_path), # Absolute path to the temporary workdir
         )
-        
-        # Generate a curl example
-        payload_json = payload.model_dump_json(indent=2)
-        curl_example = f"""curl -X POST "http://localhost:8082/tool-processes" \\
+
+        # Construct the DemoCaseResponse
+        demo_case = DemoCaseResponse(
+            method="POST",
+            endpoint="/tool-processes",
+            payload=user_payload.model_dump(mode="json"), # Pass the Pydantic model's dict representation here
+            curl_example="" # Will be filled below
+        )
+
+        # Generate curl example using the user_payload
+        payload_json = user_payload.model_dump_json(indent=2)
+        curl_example = f"""curl -X POST "http://localhost:8000/tool-processes" \\
      -H "Content-Type: application/json" \\
      -d '{payload_json}'"""
         
-        return DemoCaseResponse(
-            method="POST",
-            endpoint="/tool-processes",
-            payload=payload,
-            curl_example=curl_example
-        )
+        demo_case.curl_example = curl_example
+        
+        return demo_case
 
     return app
 
