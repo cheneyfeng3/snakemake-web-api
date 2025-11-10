@@ -53,7 +53,7 @@ def parse_snakefile_with_api(snakefile_path: str) -> Tuple[List[Dict[str, Any]],
         from snakemake.api import SnakemakeApi
         from snakemake.settings.types import ConfigSettings, ResourceSettings, WorkflowSettings, StorageSettings, \
             DeploymentSettings, OutputSettings
-        from snakemake.logging import Quietness
+        from snakemake.settings.enums import Quietness
 
         workdir = Path(snakefile_path).parent
         os.chdir(workdir)
@@ -136,27 +136,36 @@ def generate_demo_calls_for_wrapper(wrapper_path: str) -> List[Dict[str, Any]]:
 
     parsed_rules, leaf_rule_names = parse_snakefile_with_api(str(snakefile))
 
-    if not parsed_rules or not leaf_rule_names:
+    if not parsed_rules:
         return []
 
     demo_calls = []
     current_wrapper_path = Path(wrapper_path).resolve()
+    
+    # --- DEBUG ---
+    # Only print for a specific wrapper to avoid flooding the console
+    if "bio/bwa/mem" in wrapper_path:
+        print(f"\n--- Debugging Wrapper: {wrapper_path} ---")
+        print(f"Leaf rules identified: {leaf_rule_names}")
 
     for rule_info in parsed_rules:
         wrapper_directive = rule_info.get("wrapper", "")
         if not wrapper_directive:
             continue
 
-        # A rule is a valid demo if it meets three criteria:
-        # 1. It is a leaf rule in the DAG.
-        # 2. It has a 'wrapper' directive.
-        # 3. The wrapper directive resolves to the path of the wrapper being processed.
-        
         is_leaf = rule_info.get("name") in leaf_rule_names
         
-        # Resolve the path of the wrapper called in the rule and compare it
         rule_wrapper_path = (test_dir / wrapper_directive).resolve()
         is_correct_wrapper = (rule_wrapper_path == current_wrapper_path)
+
+        # --- DEBUG ---
+        if "bio/bwa/mem" in wrapper_path:
+            print(f"\n  Checking rule: {rule_info.get('name')}")
+            print(f"    - Wrapper directive: '{wrapper_directive}'")
+            print(f"    - Is Leaf? {is_leaf}")
+            print(f"    - Is Correct Wrapper? {is_correct_wrapper}")
+            print(f"      - Rule wrapper path: {rule_wrapper_path}")
+            print(f"      - Self wrapper path: {current_wrapper_path}")
 
         if is_leaf and is_correct_wrapper:
             payload = rule_info
