@@ -12,6 +12,8 @@ import uuid
 from datetime import datetime, timezone
 from enum import Enum
 import json
+import tempfile
+import shutil
 
 
 # In-memory store for jobs
@@ -332,19 +334,29 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
         """
         Provides a demo case for running the 'bio/samtools/faidx' wrapper via the /tool-processes endpoint,
         including the request payload and a curl example.
-        """
-        # Define placeholder paths for inputs/outputs/workdir
-        # In a real scenario, these would be actual file paths accessible by the server
-        placeholder_input_file = "/path/to/your/genome.fasta"
-        placeholder_output_file = "/path/to/your/genome.fasta.fai"
-        placeholder_workdir = "/path/to/your/working_directory"
         
+        Note: This endpoint creates a temporary directory and a dummy input file on the server
+        to generate a runnable example. The temporary directory will need to be manually cleaned up
+        after use (e.g., by running `rm -rf <path_to_temp_dir>`).
+        """
+        # Create a temporary directory for the demo
+        temp_dir = tempfile.mkdtemp()
+        temp_dir_path = Path(temp_dir)
+
+        # Define input and output file names relative to the workdir
+        input_file_name = "genome.fasta"
+        output_file_name = "genome.fasta.fai"
+
+        # Create a dummy input file inside the temporary directory
+        input_file_full_path = temp_dir_path / input_file_name
+        input_file_full_path.write_text(">chr1\nAGCTAGCTAGCTAGCT\n>chr2\nTCGATCGATCGA\n")
+
         # Construct the SnakemakeWrapperRequest payload
         payload = SnakemakeWrapperRequest(
             wrapper_name="bio/samtools/faidx",
-            inputs=[placeholder_input_file],
-            outputs=[placeholder_output_file],
-            workdir=placeholder_workdir,
+            inputs=[input_file_name], # Relative to workdir
+            outputs=[output_file_name], # Relative to workdir
+            workdir=str(temp_dir_path), # Absolute path to the temporary workdir
             conda_env=str(Path(wrappers_path) / "bio/samtools/faidx/environment.yaml")
         )
         
