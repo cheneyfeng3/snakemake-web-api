@@ -74,8 +74,9 @@ def mcp_server(server_port, wrappers_path, workflows_dir):
     server_thread.daemon = True
     server_thread.start()
     
+    time.sleep(5) # Give the server a moment to start its process
     # Wait for the server to start
-    for _ in range(20): # Increased attempts for server startup
+    for _ in range(40): # Increased attempts for server startup (20 seconds total)
         try:
             with socket.create_connection(("127.0.0.1", server_port), timeout=1):
                 break
@@ -96,6 +97,7 @@ async def http_client(server_url, mcp_server):
     
     # 使用短暂的连接，避免长时间保持连接导致的问题
     try:
+        time.sleep(1) # Add a small delay before pinging
         async with client:
             # 简单的连通性测试
             await asyncio.wait_for(client.ping(), timeout=10) # Increased timeout for ping

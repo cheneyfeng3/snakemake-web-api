@@ -4,7 +4,8 @@ import tempfile
 import gzip
 from snakemake_mcp_server.wrapper_runner import run_wrapper
 
-def test_megahit_wrapper(wrappers_path):
+@pytest.mark.asyncio
+async def test_megahit_wrapper(wrappers_path):
     """Test the megahit wrapper with container, benchmark, resources, and shadow."""
     with tempfile.TemporaryDirectory() as temp_dir:
         # Create dummy input files
@@ -21,7 +22,7 @@ def test_megahit_wrapper(wrappers_path):
         output_file = os.path.join(output_dir, "final.contigs.fasta")
         benchmark_file = os.path.join(temp_dir, "benchmark.txt")
 
-        result = run_wrapper(
+        result = await run_wrapper(
             wrapper_name="megahit",
             wrappers_path=wrappers_path,
             inputs={
@@ -29,9 +30,10 @@ def test_megahit_wrapper(wrappers_path):
             },
             outputs={"contigs": output_file},
             params={"extra": "--min-count 10 --k-list 21,29,39,59,79,99,119,141"},
-            container="docker://continuumio/miniconda3:4.4.10",
+            container_img="docker://continuumio/miniconda3:4.4.10",
             benchmark=benchmark_file,
             resources={"mem_mb": 250000},
+            workdir=temp_dir,
         )
 
         assert result["status"] == "success"

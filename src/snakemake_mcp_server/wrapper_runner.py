@@ -45,6 +45,9 @@ async def run_wrapper(
         if not workdir or not Path(workdir).is_dir():
             return {"status": "failed", "stdout": "", "stderr": "A valid 'workdir' must be provided for execution.", "exit_code": -1, "error_message": "Missing or invalid workdir."}
 
+        if not wrapper_name:
+            return {"status": "failed", "stdout": "", "stderr": "A 'wrapper_name' must be provided for execution.", "exit_code": -1, "error_message": "wrapper_name must be a non-empty string."}
+
         execution_workdir = Path(workdir).resolve()
 
         # Pre-emptively create log directories to handle buggy wrappers
@@ -106,10 +109,12 @@ async def run_wrapper(
             "snakemake",
             "--snakefile", str(snakefile_path),
             "--cores", str(threads),
-            "--use-conda",
             "--nocolor",
             "--forceall"  # Force execution since we are in a temp/isolated context
         ]
+
+        if conda_env:
+            cmd_list.append("--use-conda")
 
         # Add targets if they exist
         if outputs:
@@ -180,6 +185,8 @@ def _generate_wrapper_snakefile(
     # Build the rule definition
     rule_parts = ["rule run_single_wrapper:"]
     
+    logger.debug(f"Generating Snakefile for wrapper: {wrapper_name} with wrappers_path: {wrappers_path}")
+
     # Remove "master/" prefix from wrapper_name if it exists, as per user's instruction
     if wrapper_name.startswith("master/"):
         wrapper_name = wrapper_name[len("master/"):]
@@ -268,7 +275,7 @@ def _generate_wrapper_snakefile(
     
     # Wrapper
     wrapper_path = Path(wrappers_path) / wrapper_name
-    rule_parts.append(f'    wrapper: "file://{wrapper_path.resolve()}"')
+    rule_parts.append(f'    wrapper: "{wrapper_path.resolve()}"')
     
     rule_parts.append("")  # Empty line to end the rule
     

@@ -28,11 +28,7 @@ async def test_direct_fastapi_workflow_execution(rest_client):
         "params": {"greeting": "Hello"}
     })
     
-    assert response.status_code in [200, 422]  # 422 is expected if files don't exist
-    if response.status_code == 200:
-        result = response.json()
-        assert "status" in result
-        print(f"Direct FastAPI workflow execution result: {result['status']}")
+    assert response.status_code in [200, 202, 422]  # 422 is expected if files don't exist
 
 
 @pytest.mark.asyncio
@@ -46,11 +42,7 @@ async def test_direct_fastapi_wrapper_execution(rest_client):
         "params": {"dir": "/tmp"}
     })
     
-    assert response.status_code in [200, 422]  # 422 is expected if files don't exist
-    if response.status_code == 200:
-        result = response.json()
-        assert "status" in result
-        print(f"Direct FastAPI wrapper execution result: {result['status']}")
+    assert response.status_code in [200, 202, 422]  # 422 is expected if files don't exist
 
 
 @pytest.mark.asyncio

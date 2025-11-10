@@ -2,7 +2,8 @@ import pytest
 import os
 from snakemake_mcp_server.wrapper_runner import run_wrapper
 
-def test_run_wrapper_with_shadow(test_files):
+@pytest.mark.asyncio
+async def test_run_wrapper_with_shadow(test_files):
     """测试通过直接函数调用成功执行带有shadow指令的wrapper"""
     # Get the wrappers path
     wrappers_path = os.environ.get("SNAKEBASE_DIR", "./snakebase") + "/snakemake-wrappers"
@@ -10,14 +11,15 @@ def test_run_wrapper_with_shadow(test_files):
         wrappers_path = "./snakebase/snakemake-wrappers"
     
     # 1. 调用 run_wrapper，并设置 shadow 参数
-    result = run_wrapper(
+    result = await run_wrapper(
         wrapper_name="bio/samtools/faidx",
         wrappers_path=wrappers_path,
         inputs=[test_files['input']],
         outputs=[test_files['output']],
         params={},
         threads=1,
-        shadow="minimal", # 设置 shadow 指令为 "minimal"
+        shadow_depth="minimal", # 设置 shadow 指令为 "minimal"
+        workdir=test_files['temp_dir']
     )
     
     # 2. 验证结果

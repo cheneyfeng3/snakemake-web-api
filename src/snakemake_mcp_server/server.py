@@ -1,3 +1,5 @@
+import anyio
+import click
 import sys
 import os
 import logging
@@ -5,7 +7,6 @@ import dotenv
 from pathlib import Path
 from typing import Union, Dict, List, Optional
 from fastmcp import FastMCP
-import anyio
 
 # Load environment variables from ~/.swa/.env if file exists
 config_dir = Path.home() / ".swa"
@@ -47,11 +48,6 @@ def create_mcp_from_fastapi(wrappers_path: str, workflows_dir: str):
     mcp = FastMCP.from_fastapi(app=fastapi_app)
     
     return mcp
-
-import click
-import sys
-import os
-from pathlib import Path
 
 def validate_paths(snakebase_dir):
     """Validate the snakebase directory structure."""
@@ -112,7 +108,7 @@ def parse(ctx):
     cache_dir.mkdir()
 
     wrapper_count = 0
-    demo_count = 0
+    total_demo_count = 0
     for root, dirs, files in os.walk(wrappers_path):
         # Skip hidden directories, including the cache dir itself
         dirs[:] = [d for d in dirs if not d.startswith('.')]
@@ -120,24 +116,24 @@ def parse(ctx):
         if "meta.yaml" in files:
             wrapper_count += 1
             meta_file_path = os.path.join(root, "meta.yaml")
-            click.echo(f"Parsing wrapper {wrapper_count}: {os.path.relpath(root, wrappers_path)}")
+            wrapper_rel_path = os.path.relpath(root, wrappers_path)
+            click.echo(f"Parsing wrapper {wrapper_count}: {wrapper_rel_path}")
             
             try:
                 with open(meta_file_path, 'r', encoding='utf-8') as f:
                     meta_data = yaml.safe_load(f)
-                
-                wrapper_rel_path = os.path.relpath(root, wrappers_path)
                 
                 notes_data = meta_data.get('notes')
                 if isinstance(notes_data, str):
                     notes_data = [line.strip() for line in notes_data.split('\n') if line.strip()]
 
                 # Pre-parse demos using the robust DAG-based parser
-                basic_demo_calls = generate_demo_calls_for_wrapper(root)
-                if basic_demo_calls:
-                    demo_count += len(basic_demo_calls)
+                basic_demo_calls = generate_demo_calls_for_wrapper(root, wrappers_path_str)
+                num_demos = len(basic_demo_calls) if basic_demo_calls else 0
+                if num_demos > 0:
+                    total_demo_count += num_demos
                     enhanced_demos = [
-                        DemoCall(method='POST', endpoint='/tool-processes', payload=call)
+                        DemoCall(method='POST', endpoint='/tool-processes', payload=call).model_dump(mode="json")
                         for call in basic_demo_calls
                     ]
                 else:
@@ -153,19 +149,22 @@ def parse(ctx):
                     params=meta_data.get('params'),
                     notes=notes_data,
                     path=wrapper_rel_path,
-                    demos=enhanced_demos
+                    demos=enhanced_demos,
+                    demo_count=num_demos
                 )
                 
                 # Save to cache
                 cache_file_path = cache_dir / f"{wrapper_rel_path}.json"
                 cache_file_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(cache_file_path, 'w') as f:
-                    json.dump(wrapper_meta.model_dump(mode="json"), f, indent=2)
+                    f.write(wrapper_meta.model_dump_json(indent=2))
 
             except Exception as e:
-                click.echo(f"  [ERROR] Failed to parse or cache {os.path.relpath(root, wrappers_path)}: {e}", err=True)
+                click.echo(f"  [ERROR] Failed to parse or cache {wrapper_rel_path}: {e}", err=True)
+                import traceback
+                traceback.print_exc() # Print full traceback for debugging
 
-    click.echo(f"\nSuccessfully parsed and cached {wrapper_count} wrappers and {demo_count} demos in {cache_dir}")
+    click.echo(f"\nSuccessfully parsed and cached {wrapper_count} wrappers and {total_demo_count} demos in {cache_dir}")
 
 
 # Note: The original direct MCP server is no longer supported as we're using the FastAPI-first approach

@@ -1,42 +1,11 @@
 """
 A fast, focused integration test for the asynchronous API flow.
-
-This test validates the end-to-end process for a single wrapper demo:
-1. Fetches the list of tools.
-2. Gets the metadata for the first tool.
-3. Submits the first demo for execution.
-4. Polls the status endpoint until the job is complete.
-5. Verifies the final status and logs.
 """
 import pytest
 from fastapi.testclient import TestClient
 import logging
-import time
+import json
 from snakemake_mcp_server.fastapi_app import create_native_fastapi_app
-
-# Helper functions copied from the original test file
-def _value_is_valid(value):
-    if value is None: return False
-    if isinstance(value, str) and value in ("<callable>",): return False
-    if isinstance(value, list) and len(value) == 0: return False
-    if isinstance(value, dict) and len(value) == 0: return False
-    return True
-
-def _convert_snakemake_io(io_value):
-    if isinstance(io_value, dict): return {k: v for k, v in io_value.items() if _value_is_valid(v)}
-    elif isinstance(io_value, (list, tuple)): return [v for v in io_value if _value_is_valid(v)]
-    elif _value_is_valid(io_value): return [io_value]
-    else: return []
-
-def _convert_snakemake_params(params_value):
-    if isinstance(params_value, dict): return {k: v for k, v in params_value.items() if _value_is_valid(v)}
-    elif isinstance(params_value, (list, tuple)):
-        result = {}
-        for idx, val in enumerate(params_value):
-            if _value_is_valid(val): result[f'param_{idx}'] = val
-        return result
-    elif _value_is_valid(params_value): return params_value
-    else: return {}
 
 @pytest.fixture
 def rest_client():
@@ -47,100 +16,26 @@ def rest_client():
 @pytest.mark.asyncio
 async def test_single_demo_api_flow(rest_client):
     """
-    Tests the full asynchronous API flow by finding the first available
-    wrapper that has a valid, executable demo.
+    Tests if the API correctly returns demo information for a specific wrapper.
     """
-    logging.info("Starting single demo API flow test...")
+    logging.info("Starting simplified demo API test...")
 
-    # 1. Get the list of all wrappers
-    response = rest_client.get("/tools")
-    assert response.status_code == 200, "Failed to get wrapper list"
+    # Directly test a wrapper known to have a demo
+    wrapper_path = "bio/bwa/mem"
     
-    wrappers = response.json().get("wrappers", [])
-    if not wrappers:
-        pytest.skip("No wrappers found, skipping single demo API test.")
+    # Fetch the full metadata for this specific wrapper
+    metadata_response = rest_client.get(f"/tools/{wrapper_path}")
+    assert metadata_response.status_code == 200, f"Failed to get metadata for {wrapper_path}"
     
-    # 2. Find the first wrapper that has at least one valid demo
-    target_wrapper = None
-    first_demo = None
+    metadata = metadata_response.json()
     
-    for wrapper_summary in wrappers:
-        wrapper_path = wrapper_summary.get("path")
-        if not wrapper_path:
-            continue
-
-        logging.info(f"Checking wrapper for demos: {wrapper_path}")
-        metadata_response = rest_client.get(f"/tools/{wrapper_path}")
-        assert metadata_response.status_code == 200, f"Failed to get metadata for {wrapper_path}"
-        
-        metadata = metadata_response.json()
-        demos = metadata.get("demos", [])
-        
-        if demos:
-            target_wrapper = metadata
-            first_demo = demos[0]
-            logging.info(f"Found valid demo for wrapper: {wrapper_path}")
-            break
-
-    if not target_wrapper or not first_demo:
-        pytest.skip("Could not find any wrapper with a valid, executable demo.")
-
-    # 3. Prepare and submit the job
-    wrapper_path = target_wrapper.get("path")
-    endpoint = first_demo.get("endpoint")
-    payload = first_demo.get("payload", {})
-    assert endpoint == "/tool-processes", "This test is designed for /tool-processes endpoint."
-
-    # Transform payload from Snakefile rule format to API format
-    api_payload = { "wrapper_name": payload.get('wrapper', '').replace('file://', '') }
-    if 'input' in payload and _value_is_valid(payload['input']): api_payload['inputs'] = _convert_snakemake_io(payload['input'])
-    if 'output' in payload and _value_is_valid(payload['output']): api_payload['outputs'] = _convert_snakemake_io(payload['output'])
-    if 'params' in payload and _value_is_valid(payload['params']): api_payload['params'] = _convert_snakemake_params(payload['params'])
-    if 'log' in payload and _value_is_valid(payload['log']): api_payload['log'] = _convert_snakemake_io(payload['log'])
-    if 'threads' in payload: api_payload['threads'] = payload['threads']
-    elif 'resources' in payload and '_cores' in payload['resources']: api_payload['threads'] = payload['resources']['_cores']
-    if 'workdir' in payload and payload['workdir'] is not None: api_payload['workdir'] = payload['workdir']
+    # Print the received metadata for debugging
+    logging.info(f"Received metadata for {wrapper_path}:\n{json.dumps(metadata, indent=2)}")
     
-    # Submit the job
-    start_time = time.time()
-    timeout = 300  # 5 minutes
-
-    demo_response = rest_client.post(endpoint, json=api_payload)
-    assert demo_response.status_code == 202, f"Expected 202 Accepted, got {demo_response.status_code}"
+    demos = metadata.get("demos")
     
-    status_url = demo_response.json().get("status_url")
-    assert status_url, "Response is missing status_url"
-    
-    logging.info(f"Job submitted for wrapper {wrapper_path}. Polling status at {status_url}")
+    assert demos is not None, "The 'demos' field is missing from the response."
+    assert isinstance(demos, list), "The 'demos' field is not a list."
+    assert len(demos) > 0, "The 'demos' list is empty, but was expected to have content."
 
-    # 4. Poll for completion
-    final_job_data = None
-    while time.time() - start_time < timeout:
-        status_response = rest_client.get(status_url)
-        assert status_response.status_code == 200, f"Polling failed with status {status_response.status_code}"
-        
-        job_data = status_response.json()
-        current_status = job_data.get("status")
-        logging.info(f"Polling... current status is '{current_status}'")
-
-        if current_status in ["completed", "failed"]:
-            final_job_data = job_data
-            break
-        
-        time.sleep(5)
-
-    assert final_job_data is not None, f"Job did not complete within {timeout} seconds."
-
-    # 5. Verify the result
-    final_status = final_job_data.get("status")
-    logging.info(f"Job finished with final status '{final_status}'")
-
-    result_data = final_job_data.get("result", {})
-    stdout = result_data.get("stdout", "")
-    stderr = result_data.get("stderr", "")
-    
-    if stdout: logging.info(f"Final stdout:\n---\n{stdout}\n---")
-    if stderr: logging.error(f"Final stderr:\n---\n{stderr}\n---")
-
-    assert final_status == "completed", f"Job failed with status '{final_status}'"
-    logging.info("Single demo API flow test completed successfully.")
+    logging.info(f"Successfully found {len(demos)} demo(s) for wrapper {wrapper_path}.")

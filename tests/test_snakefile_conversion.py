@@ -2,12 +2,13 @@ import pytest
 import asyncio
 import sys
 import os
+from pathlib import Path # Added this import
 from fastmcp import Client
 
 # Add the src directory to the path so we can import the parser
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from snakemake_mcp_server.snakefile_parser import analyze_wrapper_test_directory, parse_snakefile_content, convert_rule_to_tool_process_call
+from snakemake_mcp_server.snakefile_parser import generate_demo_calls_for_wrapper, parse_snakefile_content, convert_rule_to_tool_process_call
 
 
 @pytest.mark.asyncio
@@ -15,11 +16,11 @@ async def test_convert_snakefile_to_tool_process_calls(http_client: Client):
     """测试将 Snakefile 转换为 tool/process 调用的功能"""
     
     # 分析一个测试目录
-    wrapper_path = "bio/samtools/faidx"
-    snakefile_path = "./snakebase/snakemake-wrappers/bio/samtools/faidx/test/Snakefile"
+    wrapper_path = "./snakebase/snakemake-wrappers/bio/samtools/faidx" # This is the actual wrapper path
+    wrappers_root = "./snakebase/snakemake-wrappers"
     
     # 解析 Snakefile 获得 tool/process 调用
-    tool_calls = analyze_wrapper_test_directory(wrapper_path, snakefile_path)
+    tool_calls = generate_demo_calls_for_wrapper(wrapper_path, wrappers_root)
     
     print(f"从 Snakefile 解析出 {len(tool_calls)} 个 tool/process 调用:")
     
@@ -28,15 +29,15 @@ async def test_convert_snakefile_to_tool_process_calls(http_client: Client):
     
     for i, call in enumerate(tool_calls):
         print(f"\n调用 {i+1}:")
-        print(f"  Wrapper: {call['wrapper_name']}")
-        print(f"  Inputs: {call['inputs']}")
-        print(f"  Outputs: {call['outputs']}")
+        print(f"  Wrapper: {call['wrapper']}")
+        print(f"  Inputs: {call['input']}")
+        print(f"  Outputs: {call['output']}")
         print(f"  Params: {call['params']}")
         
         # 验证每个调用都包含必要的字段
-        assert 'wrapper_name' in call
-        assert 'inputs' in call
-        assert 'outputs' in call
+        assert 'wrapper' in call
+        assert 'input' in call
+        assert 'output' in call
         assert 'params' in call
     
     print("✓ Snakefile 解析成功，生成有效的 tool/process 调用格式")
@@ -81,27 +82,31 @@ rule samtools_faidx:
 
 def test_parser_with_multiple_wrapper_types():
     """测试解析多种不同 wrapper 类型的 Snakefile"""
+    wrappers_root = "./snakebase/snakemake-wrappers"
+
     # 测试 samtools stats
-    snakefile_path = "./snakebase/snakemake-wrappers/bio/samtools/stats/test/Snakefile"
-    if os.path.exists(snakefile_path):
-        tool_calls = analyze_wrapper_test_directory("bio/samtools/stats", snakefile_path)
+    wrapper_path_stats = "./snakebase/snakemake-wrappers/bio/samtools/stats"
+    snakefile_path_stats = Path(wrapper_path_stats) / "test" / "Snakefile"
+    if os.path.exists(snakefile_path_stats):
+        tool_calls = generate_demo_calls_for_wrapper(wrapper_path_stats, wrappers_root)
         print(f"Samtools stats: 解析出 {len(tool_calls)} 个调用")
         
         for call in tool_calls:
-            print(f"  - {call['wrapper_name']}: {call['inputs']} -> {call['outputs']}")
+            print(f"  - {call['wrapper']}: {call['input']} -> {call['output']}")
         
         assert len(tool_calls) > 0, "samtools/stats 应该有解析出的调用"
     else:
         print("samtools/stats test Snakefile 不存在，跳过测试")
         
     # 测试 samtools sort
-    snakefile_path = "./snakebase/snakemake-wrappers/bio/samtools/sort/test/Snakefile"
-    if os.path.exists(snakefile_path):
-        tool_calls = analyze_wrapper_test_directory("bio/samtools/sort", snakefile_path)
+    wrapper_path_sort = "./snakebase/snakemake-wrappers/bio/samtools/sort"
+    snakefile_path_sort = Path(wrapper_path_sort) / "test" / "Snakefile"
+    if os.path.exists(snakefile_path_sort):
+        tool_calls = generate_demo_calls_for_wrapper(wrapper_path_sort, wrappers_root)
         print(f"Samtools sort: 解析出 {len(tool_calls)} 个调用")
         
         for call in tool_calls:
-            print(f"  - {call['wrapper_name']}: {call['inputs']} -> {call['outputs']}")
+            print(f"  - {call['wrapper']}: {call['input']} -> {call['output']}")
             
         assert len(tool_calls) > 0, "samtools/sort 应该有解析出的调用"
     else:

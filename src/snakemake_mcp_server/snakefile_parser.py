@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Any, Tuple, Set
 import sys
+import tempfile # Added this import
 
 def _value_serializer(val: Any) -> Any:
     """
@@ -79,14 +80,12 @@ def parse_snakefile_with_api(snakefile_path: str) -> Tuple[List[Dict[str, Any]],
             )
             internal_workflow = workflow_api._workflow
 
+            leaf_rule_names = set()
             # The DAG is only built if there is a target. If not, dag is None.
-            if internal_workflow.dag is None:
-                return [], set()
+            if internal_workflow.dag is not None:
+                leaf_rule_names = {job.rule.name for job in internal_workflow.dag.leaves()}
 
-            # 1. Identify leaf rules from the DAG
-            leaf_rule_names = {job.rule.name for job in internal_workflow.dag.leaves()}
-
-            # 2. Extract information from all rules
+            # Extract information from all rules
             parsed_rules = []
             for rule in internal_workflow.rules:
                 rule_dict = {}
@@ -123,7 +122,7 @@ def parse_snakefile_with_api(snakefile_path: str) -> Tuple[List[Dict[str, Any]],
         sys.path = original_sys_path
 
 
-def generate_demo_calls_for_wrapper(wrapper_path: str) -> List[Dict[str, Any]]:
+def generate_demo_calls_for_wrapper(wrapper_path: str, wrappers_root: str) -> List[Dict[str, Any]]:
     """
     Generate demo calls for a wrapper by analyzing its test Snakefile's DAG
     to find executable leaf rules that point to the correct wrapper.
@@ -141,35 +140,129 @@ def generate_demo_calls_for_wrapper(wrapper_path: str) -> List[Dict[str, Any]]:
 
     demo_calls = []
     current_wrapper_path = Path(wrapper_path).resolve()
-    
-    # --- DEBUG ---
-    # Only print for a specific wrapper to avoid flooding the console
-    if "bio/bwa/mem" in wrapper_path:
-        print(f"\n--- Debugging Wrapper: {wrapper_path} ---")
-        print(f"Leaf rules identified: {leaf_rule_names}")
+    wrappers_root_path = Path(wrappers_root).resolve()
 
     for rule_info in parsed_rules:
         wrapper_directive = rule_info.get("wrapper", "")
         if not wrapper_directive:
             continue
 
+        # Remove 'master/' prefix if present, as per user instruction
+        if wrapper_directive.startswith("master/"):
+            wrapper_directive = wrapper_directive[len("master/"):]
+
         is_leaf = rule_info.get("name") in leaf_rule_names
         
-        rule_wrapper_path = (test_dir / wrapper_directive).resolve()
-        is_correct_wrapper = (rule_wrapper_path == current_wrapper_path)
+        # Compare the wrapper directive (relative path) with the relative path of the current wrapper
+        is_correct_wrapper = (Path(wrapper_directive) == current_wrapper_path.relative_to(wrappers_root_path))
 
-        # --- DEBUG ---
-        if "bio/bwa/mem" in wrapper_path:
-            print(f"\n  Checking rule: {rule_info.get('name')}")
-            print(f"    - Wrapper directive: '{wrapper_directive}'")
-            print(f"    - Is Leaf? {is_leaf}")
-            print(f"    - Is Correct Wrapper? {is_correct_wrapper}")
-            print(f"      - Rule wrapper path: {rule_wrapper_path}")
-            print(f"      - Self wrapper path: {current_wrapper_path}")
-
-        if is_leaf and is_correct_wrapper:
+        # A rule is a valid demo if it's a correct self-test AND either:
+        # a) it's a leaf rule in a DAG, OR
+        # b) it's the only rule in a simple Snakefile (which likely has no DAG).
+        if is_correct_wrapper and (is_leaf or len(parsed_rules) == 1):
             payload = rule_info
             payload['workdir'] = str(test_dir)
             demo_calls.append(payload)
 
     return demo_calls
+
+
+def parse_snakefile_content(snakefile_content: str) -> List[Dict[str, Any]]:
+    """
+    Parses a Snakefile string content using a mock Snakemake API to extract rules.
+    This is a simpler parser for direct string content parsing, not involving file system access for DAG building.
+    """
+    try:
+        from snakemake.api import SnakemakeApi
+        from snakemake.settings.types import ConfigSettings, ResourceSettings, WorkflowSettings, \
+            StorageSettings, DeploymentSettings, OutputSettings
+        from snakemake.settings.enums import Quietness
+        
+        config_settings = ConfigSettings()
+        resource_settings = ResourceSettings()
+        workflow_settings = WorkflowSettings()
+        storage_settings = StorageSettings()
+        deployment_settings = DeploymentSettings()
+        output_settings = OutputSettings(quiet=[Quietness.ALL])
+
+        # Create a temporary file for the Snakefile content
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_snakefile:
+            temp_snakefile.write(snakefile_content)
+            temp_snakefile_path = Path(temp_snakefile.name)
+
+        original_cwd = os.getcwd()
+        os.chdir(temp_snakefile_path.parent)
+
+        parsed_rules = []
+        try:
+            with SnakemakeApi(output_settings=output_settings) as api:
+                workflow_api = api.workflow(
+                    resource_settings=resource_settings,
+                    config_settings=config_settings,
+                    workflow_settings=workflow_settings,
+                    storage_settings=storage_settings,
+                    deployment_settings=deployment_settings,
+                    snakefile=temp_snakefile_path.name,
+                    workdir=temp_snakefile_path.parent
+                )
+                internal_workflow = workflow_api._workflow
+
+                for rule in internal_workflow.rules:
+                    rule_dict = {}
+                    attributes_to_extract = [
+                        'name', 'input', 'output', 'params', 'resources', 
+                        'priority', 'log', 'benchmark', 'conda_env', 'container_img',
+                        'env_modules', 'group', 'shadow_depth', 'wrapper'
+                    ]
+                    for attr in attributes_to_extract:
+                        attr_private = f"_{attr}"
+                        if hasattr(rule, attr):
+                            val = getattr(rule, attr)
+                        elif hasattr(rule, attr_private):
+                            val = getattr(rule, attr_private)
+                        else:
+                            continue
+                        
+                        rule_dict[attr] = _value_serializer(val) # Use the existing serializer
+
+                    if 'resources' in rule_dict and isinstance(rule_dict['resources'], dict) and '_cores' in rule_dict['resources']:
+                        rule_dict['threads'] = rule_dict['resources']['_cores']
+                    
+                    parsed_rules.append(rule_dict)
+        finally:
+            os.chdir(original_cwd)
+            os.remove(temp_snakefile_path)
+
+        return parsed_rules
+
+    except Exception as e:
+        print(f"Error parsing Snakefile content: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return []
+
+
+def convert_rule_to_tool_process_call(rule_info: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Converts a parsed Snakemake rule into a tool/process API call format.
+    """
+    inputs = rule_info.get('input', {})
+    outputs = rule_info.get('output', {})
+    params = rule_info.get('params', {})
+    
+    # Extract the wrapper path from the 'wrapper' directive
+    wrapper_directive = rule_info.get('wrapper', '')
+    if wrapper_directive.startswith("master/"):
+        wrapper_name = wrapper_directive[len("master/"):]
+    else:
+        wrapper_name = wrapper_directive
+        
+    return {
+        "wrapper_name": wrapper_name,
+        "inputs": inputs,
+        "outputs": outputs,
+        "params": params,
+        "log": rule_info.get('log'),
+        "threads": rule_info.get('threads'),
+        # Add other potential fields as needed, mapping Snakemake rule attributes to API fields
+    }

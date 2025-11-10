@@ -8,7 +8,7 @@ from pathlib import Path
 # Add the src directory to the path so we can import the modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from snakemake_mcp_server.snakefile_parser import analyze_wrapper_test_directory, parse_snakefile_content
+from snakemake_mcp_server.snakefile_parser import generate_demo_calls_for_wrapper, parse_snakefile_content
 from snakemake_mcp_server.fastapi_app import SnakemakeWrapperRequest
 from pydantic import BaseModel
 
@@ -50,17 +50,18 @@ def test_wrapper_api_parameter_completeness():
                 if snakefile.exists():
                     try:
                         # 解析 test Snakefile
-                        tool_calls = analyze_wrapper_test_directory(str(wrapper_path), str(snakefile))
+                        tool_calls = generate_demo_calls_for_wrapper(str(wrapper_path), str(wrappers_dir))
                         
                         # 获取 API 模型字段（可用的参数）
                         api_fields = set(SnakemakeWrapperRequest.model_fields.keys()) if hasattr(SnakemakeWrapperRequest, 'model_fields') else set(SnakemakeWrapperRequest.__fields__.keys())
                         
                         for i, call in enumerate(tool_calls):
-                            wrapper_name = call.get('wrapper_name', 'unknown')
+                            wrapper_name = call.get('wrapper', 'unknown')
                             
                             # 检查每个参数是否在 API 中有对应
                             call_params = set()
-                            for key in ['inputs', 'outputs', 'params', 'log', 'threads', 'wrapper_name', 'extra_snakemake_args', 'container', 'benchmark', 'resources', 'shadow', 'conda_env']:
+                            # Update keys to match generate_demo_calls_for_wrapper output
+                            for key in ['input', 'output', 'params', 'log', 'threads', 'wrapper', 'workdir', 'conda_env', 'container_img', 'shadow_depth', 'group', 'benchmark', 'resources', 'priority']:
                                 if call.get(key) is not None:
                                     call_params.add(key)
                             

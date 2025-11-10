@@ -2,20 +2,22 @@ import pytest
 import os
 from snakemake_mcp_server.wrapper_runner import run_wrapper
 
-def test_run_wrapper_success(test_files):
+@pytest.mark.asyncio
+async def test_run_wrapper_success(test_files):
     """测试通过直接函数调用成功执行wrapper"""
     # Get the wrappers path
     wrappers_path = os.environ.get("SNAKEBASE_DIR", "./snakebase") + "/snakemake-wrappers"
     if not os.path.exists(wrappers_path):
         wrappers_path = "./snakebase/snakemake-wrappers"
     
-    result = run_wrapper(
+    result = await run_wrapper(
         wrapper_name="samtools/faidx",
         wrappers_path=wrappers_path,
         inputs=[test_files['input']],
         outputs=[test_files['output']],
         params={},
-        threads=1
+        threads=1,
+        workdir=test_files['temp_dir']
     )
     
     # 验证结果

@@ -21,62 +21,7 @@ def create_dummy_wrapper(tmpdir: Path, wrapper_name: str, content: str):
     return str(wrapper_path)
 
 
-def test_samtools_faidx_self_contained(temp_dir, wrappers_path):
-    # Create dummy input file
-    input_fasta = temp_dir / "test.fasta"
-    input_fasta.write_text(">chr1\nATCG\n")
 
-    # Define output file
-    output_fai = temp_dir / "test.fasta.fai"
-
-    # Call the wrapper
-    result = run_wrapper(
-        wrapper_name="samtools/faidx",
-        inputs=[str(input_fasta)],
-        outputs=[str(output_fai)],
-        wrappers_path=wrappers_path,
-        threads=1,
-    )
-
-    assert result["status"] == "success"
-    assert os.path.exists(output_fai)
-    assert "chr1\t4\t0\t4\t5" in output_fai.read_text()
-
-def test_arriba_local_data(temp_dir, wrappers_path):
-    # Create dummy input files
-    input_bam = temp_dir / "test.bam"
-    input_bam.write_text("dummy bam content")
-    input_bai = temp_dir / "test.bam.bai"
-    input_bai.write_text("dummy bai content")
-    input_fasta = temp_dir / "test.fasta"
-    input_fasta.write_text("dummy fasta content")
-    input_gtf = temp_dir / "test.gtf"
-    input_gtf.write_text("dummy gtf content")
-
-    # Define output files
-    output_fusions = temp_dir / "fusions.tsv"
-    output_discarded = temp_dir / "discarded_fusions.tsv"
-
-    # Call the wrapper
-    result = run_wrapper(
-        wrapper_name="arriba",
-        inputs={
-            "bam": str(input_bam),
-            "bai": str(input_bai),
-            "fasta": str(input_fasta),
-            "gtf": str(input_gtf),
-        },
-        outputs=[str(output_fusions), str(output_discarded)],
-        wrappers_path=wrappers_path,
-        threads=1,
-        params={
-            "extra": "--some-arriba-param"
-        }
-    )
-
-    assert result["status"] == "success"
-    assert os.path.exists(output_fusions)
-    assert os.path.exists(output_discarded)
 
 @pytest.fixture
 def self_contained_faidx_data():
@@ -107,26 +52,29 @@ def arriba_data(wrappers_path):
 
 # --- Test Case Definitions ---
 
-def test_samtools_faidx_self_contained(self_contained_faidx_data, wrappers_path):
+@pytest.mark.asyncio
+async def test_samtools_faidx_self_contained(self_contained_faidx_data, wrappers_path):
     """Test samtools/faidx with self-created data in a temp folder."""
     input_file, output_file = self_contained_faidx_data
     
-    result = run_wrapper(
+    result = await run_wrapper(
         wrapper_name="samtools/faidx",
         inputs=[input_file],
         outputs=[output_file],
         wrappers_path=wrappers_path,
+        workdir=os.path.dirname(input_file) # Pass workdir explicitly
     )
     
     assert result["status"] == "success"
     assert result["exit_code"] == 0
     assert os.path.exists(output_file)
 
-def test_arriba_local_data(arriba_data, wrappers_path):
+@pytest.mark.asyncio
+async def test_arriba_local_data(arriba_data, wrappers_path):
     """Test the arriba wrapper using its existing local test data."""
     fusions_file, discarded_file = arriba_data
     
-    result = run_wrapper(
+    result = await run_wrapper(
         wrapper_name="arriba",
         inputs={
             "bam": os.path.join(wrappers_path, "bio/arriba/test/A.bam"),
@@ -143,6 +91,7 @@ def test_arriba_local_data(arriba_data, wrappers_path):
         },
         threads=2,
         wrappers_path=wrappers_path,
+        workdir=os.path.dirname(fusions_file) # Pass workdir explicitly
     )
     
     assert result["status"] == "success"
