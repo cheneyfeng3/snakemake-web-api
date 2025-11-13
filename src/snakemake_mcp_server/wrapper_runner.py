@@ -16,7 +16,7 @@ async def run_wrapper(
     workdir: str,
     inputs: Optional[Union[Dict, List]] = None,
     outputs: Optional[Union[Dict, List]] = None,
-    params: Optional[Dict] = None,
+    params: Optional[List] = None,
     log: Optional[Union[Dict, List]] = None,
     threads: Optional[int] = None,
     resources: Optional[Dict] = None,
@@ -191,7 +191,7 @@ def _generate_wrapper_snakefile(
     wrappers_path: str,
     inputs: Optional[Union[Dict, List]] = None,
     outputs: Optional[Union[Dict, List]] = None,
-    params: Optional[Dict] = None,
+    params: Optional[Union[Dict, List]] = None,
     log: Optional[Union[Dict, List]] = None,
     threads: Optional[int] = None,
     resources: Optional[Dict] = None,
@@ -241,9 +241,9 @@ def _generate_wrapper_snakefile(
             rule_parts.append(f"    output: {', '.join(output_strs)}")
     
     # Params
-    if params:
-        param_strs = [f'{k}={repr(v)}' for k, v in params.items()]
-        rule_parts.append(f"    params: {', '.join(param_strs)}")
+    if params is not None:
+            # For other types, convert to string representation
+            rule_parts.append(f"    params: {repr(params)}")
     
     # Log
     if log:
