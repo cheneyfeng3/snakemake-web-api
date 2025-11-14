@@ -82,7 +82,7 @@ def load_cached_wrapper_metadata(wrappers_dir: str) -> list[WrapperMetadata]:
 
 
 @pytest.mark.asyncio
-async def test_all_cached_demos_with_run_wrapper_test():
+async def test_first_wrapper_demo():
     """
     Tests all cached wrapper demos using run_wrapper function directly
     with individual temporary workdirs for each demo.
@@ -103,9 +103,10 @@ async def test_all_cached_demos_with_run_wrapper_test():
     failed_demos = 0
     skipped_demos = 0
 
-    # Loop through wrappers and demos until we find a successful one or exhaust all options
+    # Find and execute only the first demo found among all wrappers
+    first_demo_executed = False
     for wrapper in wrappers:
-        if successful_demos > 0:  # If we already have a successful demo, we can stop
+        if first_demo_executed:
             break
             
         if not wrapper.demos:
@@ -113,7 +114,7 @@ async def test_all_cached_demos_with_run_wrapper_test():
 
         logging.info(f"Testing demos for wrapper: {wrapper.path}")
         for i, demo in enumerate(wrapper.demos):
-            if successful_demos > 0:  # If we already have a successful demo, we can stop
+            if first_demo_executed:
                 break
 
             payload = demo.payload
@@ -132,6 +133,7 @@ async def test_all_cached_demos_with_run_wrapper_test():
             if not wrapper_name:
                 logging.warning(f"    Demo {i+1}: SKIPPED because wrapper name is empty.")
                 skipped_demos += 1
+                # Continue to the next demo even if this one is skipped
                 continue
 
 
@@ -167,8 +169,6 @@ async def test_all_cached_demos_with_run_wrapper_test():
                     if result.get("status") == "success":
                         logging.info(f"    Demo {i+1}: SUCCESS")
                         successful_demos += 1
-                        # Exit after first successful demo
-                        break
                     else:
                         logging.error(f"    Demo {i+1}: FAILED")
                         logging.error(f"      Exit Code: {result.get('exit_code')}")
@@ -179,9 +179,12 @@ async def test_all_cached_demos_with_run_wrapper_test():
                     logging.error(f"    Demo {i+1}: EXCEPTION during execution: {e}", exc_info=True)
                     failed_demos += 1
 
-            # If we have a successful demo now, don't try more
-            if successful_demos > 0:
-                break
+            # Mark that we've executed the first demo and break out of loops
+            first_demo_executed = True
+            break  # Break out of the inner loop
+
+        if first_demo_executed:
+            break  # Break out of the outer loop
 
     logging.info("="*60)
     logging.info("Cached Demo Test Summary")
@@ -190,8 +193,8 @@ async def test_all_cached_demos_with_run_wrapper_test():
     logging.info(f"Skipped demos: {skipped_demos}")
     logging.info("="*60)
 
-    # If no demos were successful, the test should fail
-    if successful_demos == 0:
-        pytest.fail(f"Test failed because no demo executed successfully after trying {failed_demos} demos.")
+    # If the demo failed, the test should fail
+    if failed_demos > 0:
+        pytest.fail(f"Test failed because the first demo did not execute successfully.")
     
     logging.info(f"Test completed with {failed_demos} failed demos out of {successful_demos + failed_demos + skipped_demos} total demos.")
