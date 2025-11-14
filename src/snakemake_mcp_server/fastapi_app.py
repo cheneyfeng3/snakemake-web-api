@@ -207,7 +207,7 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
         """
         Load metadata for all available wrappers from the pre-parsed cache.
         """
-        cache_dir = Path(wrappers_dir) / ".parser"
+        cache_dir = Path.home() / ".swa" / "parser"
         if not cache_dir.exists():
             logger.warning(f"Parser cache directory not found at '{cache_dir}'. No tools will be loaded. Run 'swa parse' to generate the cache.")
             return []
@@ -448,4 +448,5 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
         return demo_case
 
     return app
+
 

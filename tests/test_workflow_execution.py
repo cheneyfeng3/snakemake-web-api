@@ -10,7 +10,7 @@ import yaml
 def dummy_workflow_setup():
     """Sets up a dummy Snakemake workflow for testing."""
     # Get the workflows directory
-    workflows_dir = os.environ.get("SNAKEBASE_DIR", "./snakebase") + "/snakemake-workflows"
+    workflows_dir = os.path.expanduser(os.environ.get("SNAKEBASE_DIR", "~/snakebase")) + "/snakemake-workflows"
     if not os.path.exists(workflows_dir):
         workflows_dir = "./snakebase/snakemake-workflows"
         
@@ -110,7 +110,7 @@ def test_run_snakemake_workflow_with_params(dummy_workflow_setup):
 
 def test_lint_snakemake_workflow_template():
     """Tests linting the snakemake-workflow-template workflow."""
-    workflows_dir = os.environ.get("SNAKEBASE_DIR", "./snakebase") + "/snakemake-workflows"
+    workflows_dir = os.path.expanduser(os.environ.get("SNAKEBASE_DIR", "~/snakebase")) + "/snakemake-workflows"
     if not os.path.exists(workflows_dir):
         workflows_dir = "./snakebase/snakemake-workflows"
     

@@ -23,7 +23,7 @@ def ensure_parser_cache_exists(wrappers_path_str: str):
         logging.info(f"Parser cache directory not found at '{cache_dir}'. Running 'swa parse' command...")
         
         # Get the SNAKEBASE_DIR from environment variable
-        snakebase_dir = os.environ.get("SNAKEBASE_DIR", "./snakebase")
+        snakebase_dir = os.path.expanduser(os.environ.get("SNAKEBASE_DIR", "~/snakebase"))
         
         # Run the swa parse command
         try:
@@ -86,7 +86,7 @@ async def test_first_wrapper_demo():
     Tests the first cached wrapper demo using run_demo function directly.
     """
     # Use the environment variable to get the snakebase directory
-    snakebase_dir = os.environ.get("SNAKEBASE_DIR", "./snakebase")
+    snakebase_dir = os.path.expanduser(os.environ.get("SNAKEBASE_DIR", "~/snakebase"))
     wrappers_path = os.path.join(snakebase_dir, "snakemake-wrappers")
     
     logging.info(f"Starting test for first cached wrapper demo from: {wrappers_path}")

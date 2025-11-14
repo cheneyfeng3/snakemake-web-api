@@ -17,7 +17,7 @@ if env_file.exists():
 
 # 配置日志
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -66,10 +66,10 @@ def validate_paths(snakebase_dir):
 )
 @click.option(
     '--snakebase-dir', 
-    default=lambda: os.environ.get("SNAKEBASE_DIR", "./snakebase"),
+    default=lambda: os.path.expanduser(os.environ.get("SNAKEBASE_DIR", "~/snakebase")),
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
     help="Base directory for snakebase containing snakemake-wrappers and snakemake-workflows subdirectories. "
-         "Defaults to SNAKEBASE_DIR environment variable or './snakebase'."
+         "Defaults to SNAKEBASE_DIR environment variable or '~/snakebase'."
 )
 @click.pass_context
 def cli(ctx, snakebase_dir):
@@ -96,7 +96,7 @@ def parse(ctx):
 
     wrappers_path_str = ctx.obj['WRAPPERS_PATH']
     wrappers_path = Path(wrappers_path_str)
-    cache_dir = wrappers_path / ".parser"
+    cache_dir = Path.home() / ".swa" / "parser"
     
     click.echo(f"Starting parser cache generation for wrappers in: {wrappers_path}")
     
@@ -163,6 +163,7 @@ def parse(ctx):
                 click.echo(f"  [ERROR] Failed to parse or cache {wrapper_rel_path}: {e}", err=True)
                 import traceback
                 traceback.print_exc() # Print full traceback for debugging
+        if wrapper_count == 2: break
 
     click.echo(f"\nSuccessfully parsed and cached {wrapper_count} wrappers and {total_demo_count} demos in {cache_dir}")
 
@@ -309,7 +310,7 @@ def verify(ctx, log_level, dry_run):
     logger.info(f"Starting verification of cached wrapper demos...")
     logger.info(f"Using wrappers from: {wrappers_path}")
 
-    cache_dir = Path(wrappers_path) / ".parser"
+    cache_dir = Path.home() / ".swa" / "parser"
     if not cache_dir.exists():
         logger.error(f"Parser cache directory not found at: {cache_dir}. Run 'swa parse' first.")
         sys.exit(1)

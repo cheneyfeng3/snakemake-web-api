@@ -6,12 +6,95 @@ import os
 from pathlib import Path
 from typing import Dict, List, Any, Tuple, Set
 import sys
-import tempfile # Added this import
+import tempfile
+import logging
+# from snakemake.io import Params # Explicitly import Params - REMOVED to avoid NameError
+
+logger = logging.getLogger(__name__)
+
+# logger.debug(f"ID of imported Params class: {id(Params)}") # REMOVED
 
 def _value_serializer(val: Any) -> Any:
     """
     Serialize complex Snakemake objects to basic Python types.
     """
+    # Handle Snakemake Params object (which is a Namedlist) FIRST, before other checks
+    if type(val).__name__ == 'Params': # Use type(val).__name__ == 'Params' for robustness against import issues
+        logger.debug(f"Serializing Snakemake Params object: type={type(val)}, value={val}")
+        logger.debug(f"  ID of val's type: {id(type(val))}")
+        logger.debug(f"  len(val): {len(val)}")
+        
+        # Check if the Params object behaves like a dict (has keys/attributes)
+        try:
+            # Try to get the names using _get_names method (common for Snakemake Namedlist)
+            if hasattr(val, '_get_names'):
+                logger.debug("  Params object has _get_names method, entering processing block")
+                # _get_names() returns a list of tuples (name, (index, extra_info))
+                # e.g. [('input_object_name', (0, None)), ('extra', (1, None))]
+                names = list(val._get_names())  # Convert generator to list
+                logger.debug(f"  Names from _get_names: {names}")
+                
+                params_dict = {}
+                for name, (index, _) in names:
+                    try:
+                        # Get the value using the index
+                        value = val[index]
+                        logger.debug(f"  Processing param '{name}' at index {index}, value: {value} (type: {type(value)})")
+                        serialized_value = _value_serializer(value)  # Recursively serialize the value
+                        logger.debug(f"    Serialized value: {serialized_value} (type: {type(serialized_value)})")
+                        params_dict[name] = serialized_value
+                    except Exception as e:
+                        logger.debug(f"  Error getting parameter '{name}' at index {index}: {e}")
+                
+                logger.debug(f"  Final params dict: {params_dict}")
+                logger.debug(f"  Type of final params dict: {type(params_dict)}")
+                return params_dict
+            else:
+                logger.debug("  Params object doesn't have _get_names method, trying alternative approaches")
+                # For newer versions of Snakemake, try to access by index
+                # Snakemake Params object may be structured as (positional_params, keyword_params)
+                if len(val) == 2 and isinstance(val[1], dict):
+                    logger.debug("  Condition 1 met: len(val) == 2 and isinstance(val[1], dict)")
+                    return {str(k): _value_serializer(v) for k, v in val[1].items()}
+                elif len(val) == 2 and isinstance(val[0], tuple) and not val[0] and isinstance(val[1], dict):
+                    logger.debug("  Condition 2 met: len(val) == 2 and isinstance(val[0], tuple) and not val[0] and isinstance(val[1], dict)")
+                    # This handles the case where params are defined as a dict, but val[0] is an empty tuple
+                    return {str(k): _value_serializer(v) for k, v in val[1].items()}
+                elif len(val) == 1 and isinstance(val[0], dict):
+                    logger.debug("  Condition 3 met: len(val) == 1 and isinstance(val[0], dict)")
+                    # This handles the case where only a single dict is passed as params
+                    return {str(k): _value_serializer(v) for k, v in val[0].items()}
+                elif len(val) == 1 and isinstance(val[0], tuple):
+                    logger.debug("  Condition 4 met: len(val) == 1 and isinstance(val[0], tuple)")
+                    # This handles the case where only positional params are passed
+                    return {f"param_{i}": _value_serializer(v) for i, v in enumerate(val[0])}
+                else:
+                    # Try to access params by name using dir() to get attributes
+                    param_dict = {}
+                    for attr_name in dir(val):
+                        # Skip private/magic methods
+                        if not attr_name.startswith('_') and not callable(getattr(val, attr_name)):
+                            attr_value = getattr(val, attr_name)
+                            # Avoid including internal properties from the Namedlist
+                            if not callable(attr_value) and attr_name not in ['name', 'file']:
+                                param_dict[attr_name] = _value_serializer(attr_value)
+                    if param_dict:
+                        logger.debug(f"  Serialized params as dict from attributes: {param_dict}")
+                        return param_dict
+                    else:
+                        logger.debug("  No specific condition met, falling back to str(val)")
+                        return str(val)
+        except Exception as e:
+            logger.debug(f"  Error serializing Params object: {e}")
+            import traceback
+            logger.debug(f"  Full traceback: {traceback.format_exc()}")
+            logger.debug("  Falling back to string representation")
+            return str(val)
+    else:
+        logger.debug(f"Object is not a Params object. Type: {type(val)}, Name: {type(val).__name__}")
+    
+    if isinstance(val, Path): # Handle Path objects
+        return str(val)
     if callable(val):
         return "<callable>"
     if isinstance(val, (str, int, float, bool)) or val is None:
@@ -23,13 +106,7 @@ def _value_serializer(val: Any) -> Any:
             return val._plainstrings()
         except:
             return str(val)
-    # Handle Snakemake params object which has items() method and specific attributes
-    if type(val).__name__ == 'Params' and hasattr(val, 'items') and callable(getattr(val, 'items')):
-        # This is specifically a Snakemake Params object - serialize as dict with its items
-        try:
-            return {str(k): _value_serializer(v) for k, v in val.items()}
-        except:
-            pass  # If items method doesn't work, continue to other checks
+    
     if isinstance(val, dict) or hasattr(val, 'items'):
         try:
             return {str(k): _value_serializer(v) for k, v in val.items()}
@@ -114,15 +191,18 @@ def parse_snakefile_with_api(snakefile_path: str) -> Tuple[List[Dict[str, Any]],
                     'env_modules', 'group', 'shadow_depth', 'wrapper'
                 ]
                 for attr in attributes_to_extract:
+                    val = None
                     attr_private = f"_{attr}"
                     if hasattr(rule, attr):
                         val = getattr(rule, attr)
                     elif hasattr(rule, attr_private):
-                        val = getattr(rule, attr_private)
-                    else:
-                        continue
+                        val = getattr(rule, attr) # Should be getattr(rule, attr_private)
                     
-                    rule_dict[attr] = _value_serializer(val)
+                    if attr == 'params': # Specific logging for params
+                        logger.debug(f"Before serialization - rule.params: type={type(val)}, value={val}")
+
+                    if val is not None:
+                        rule_dict[attr] = _value_serializer(val)
 
                 if 'resources' in rule_dict and isinstance(rule_dict['resources'], dict) and '_cores' in rule_dict['resources']:
                     rule_dict['threads'] = rule_dict['resources']['_cores']
@@ -184,82 +264,6 @@ def generate_demo_calls_for_wrapper(wrapper_path: str, wrappers_root: str) -> Li
             demo_calls.append(payload)
 
     return demo_calls
-
-
-def parse_snakefile_content(snakefile_content: str) -> List[Dict[str, Any]]:
-    """
-    Parses a Snakefile string content using a mock Snakemake API to extract rules.
-    This is a simpler parser for direct string content parsing, not involving file system access for DAG building.
-    """
-    try:
-        from snakemake.api import SnakemakeApi
-        from snakemake.settings.types import ConfigSettings, ResourceSettings, WorkflowSettings, \
-            StorageSettings, DeploymentSettings, OutputSettings
-        from snakemake.settings.enums import Quietness
-        
-        config_settings = ConfigSettings()
-        resource_settings = ResourceSettings()
-        workflow_settings = WorkflowSettings()
-        storage_settings = StorageSettings()
-        deployment_settings = DeploymentSettings()
-        output_settings = OutputSettings(quiet=[Quietness.ALL])
-
-        # Create a temporary file for the Snakefile content
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_snakefile:
-            temp_snakefile.write(snakefile_content)
-            temp_snakefile_path = Path(temp_snakefile.name)
-
-        original_cwd = os.getcwd()
-        os.chdir(temp_snakefile_path.parent)
-
-        parsed_rules = []
-        try:
-            with SnakemakeApi(output_settings=output_settings) as api:
-                workflow_api = api.workflow(
-                    resource_settings=resource_settings,
-                    config_settings=config_settings,
-                    workflow_settings=workflow_settings,
-                    storage_settings=storage_settings,
-                    deployment_settings=deployment_settings,
-                    snakefile=temp_snakefile_path.name,
-                    workdir=temp_snakefile_path.parent
-                )
-                internal_workflow = workflow_api._workflow
-
-                for rule in internal_workflow.rules:
-                    rule_dict = {}
-                    attributes_to_extract = [
-                        'name', 'input', 'output', 'params', 'resources', 
-                        'priority', 'log', 'benchmark', 'conda_env', 'container_img',
-                        'env_modules', 'group', 'shadow_depth', 'wrapper'
-                    ]
-                    for attr in attributes_to_extract:
-                        attr_private = f"_{attr}"
-                        if hasattr(rule, attr):
-                            val = getattr(rule, attr)
-                        elif hasattr(rule, attr_private):
-                            val = getattr(rule, attr_private)
-                        else:
-                            continue
-                        
-                        rule_dict[attr] = _value_serializer(val) # Use the existing serializer
-
-                    if 'resources' in rule_dict and isinstance(rule_dict['resources'], dict) and '_cores' in rule_dict['resources']:
-                        rule_dict['threads'] = rule_dict['resources']['_cores']
-                    
-                    parsed_rules.append(rule_dict)
-        finally:
-            os.chdir(original_cwd)
-            os.remove(temp_snakefile_path)
-
-        return parsed_rules
-
-    except Exception as e:
-        print(f"Error parsing Snakefile content: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        return []
-
 
 def convert_rule_to_tool_process_call(rule_info: Dict[str, Any]) -> Dict[str, Any]:
     """

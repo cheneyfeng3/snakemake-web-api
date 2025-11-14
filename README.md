@@ -126,7 +126,7 @@ This method uses the `uv` package manager to install the server as a proper Pyth
     Navigate to the `snakemake-web-api` directory and start the server using the `click` CLI:
 
     ```bash
-    export SNAKEBASE_DIR=/path/to/your/snakebase
+    export SNAKEBASE_DIR=~/snakebase
     snakemake-web-api run \
         --host 127.0.0.1 \
         --port 8081
