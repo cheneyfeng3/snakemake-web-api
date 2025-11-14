@@ -294,7 +294,7 @@ def verify(ctx, log_level, dry_run):
     import shutil
     from pathlib import Path
     from .fastapi_app import WrapperMetadata
-    from .wrapper_runner import run_wrapper
+    from .demo_runner import run_demo
 
     # Reconfigure logging to respect the user's choice
     logging.basicConfig(
@@ -380,44 +380,25 @@ def verify(ctx, log_level, dry_run):
                 logger.warning(f"    Demo {i+1}: SKIPPED because wrapper name is empty.")
                 continue
 
-            # Create a unique temporary workdir for this demo
-            with tempfile.TemporaryDirectory() as workdir:
-                try:
-                    # Copy input files from the wrapper's test directory to the workdir
-                    # The workdir is specified in the payload
-                    demo_workdir = payload.get('workdir')
-                    if demo_workdir and os.path.exists(demo_workdir):
-                        # Find all files in the demo workdir and copy them to the temporary workdir
-                        for item in os.listdir(demo_workdir):
-                            source = os.path.join(demo_workdir, item)
-                            destination = os.path.join(workdir, item)
-                            if os.path.isfile(source):
-                                shutil.copy2(source, destination)
-                            elif os.path.isdir(source):
-                                shutil.copytree(source, destination)
+            # Execute the wrapper using run_demo which handles input file copying
+            logger.info(f"    Demo {i+1}: Executing demo...")
+            demo_workdir = payload.get('workdir')
+            result = asyncio.run(run_demo(
+                wrapper_name=wrapper_name,
+                inputs=inputs,
+                outputs=outputs,
+                params=params,
+                demo_workdir=demo_workdir  # Pass the demo workdir for input file copying
+            ))
 
-                    # Execute the wrapper with the specific workdir
-                    logger.info(f"    Demo {i+1}: Executing in workdir {workdir}...")
-                    result = asyncio.run(run_wrapper(
-                        wrapper_name=wrapper_name,
-                        workdir=workdir,
-                        inputs=inputs,
-                        outputs=outputs,
-                        params=params
-                    ))
-
-                    if result.get("status") == "success":
-                        logger.info(f"    Demo {i+1}: SUCCESS")
-                        successful_demos += 1
-                    else:
-                        logger.error(f"    Demo {i+1}: FAILED")
-                        logger.error(f"      Exit Code: {result.get('exit_code')}")
-                        logger.error(f"      Stderr: {result.get('stderr') or 'No stderr output'}")
-                        failed_demos += 1
-
-                except Exception as e:
-                    logger.error(f"    Demo {i+1}: EXCEPTION during execution: {e}", exc_info=True)
-                    failed_demos += 1
+            if result.get("status") == "success":
+                logger.info(f"    Demo {i+1}: SUCCESS")
+                successful_demos += 1
+            else:
+                logger.error(f"    Demo {i+1}: FAILED")
+                logger.error(f"      Exit Code: {result.get('exit_code')}")
+                logger.error(f"      Stderr: {result.get('stderr') or 'No stderr output'}")
+                failed_demos += 1
 
     logger.info("="*60)
     logger.info("Verification Summary")

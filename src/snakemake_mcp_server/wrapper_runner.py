@@ -106,6 +106,7 @@ async def run_wrapper(
                 env_modules=env_modules,
                 group=group
             )
+            logger.debug(f"Generated Snakefile content:\n{snakefile_content}")
             tmp_snakefile.write(snakefile_content)
 
         # 3. Build and run Snakemake command using asyncio.subprocess
@@ -135,6 +136,9 @@ async def run_wrapper(
 
         if resolved_conda_env_path_for_snakefile: # Use the resolved path to decide if --use-conda is needed
             cmd_list.append("--use-conda")
+            # Add conda prefix for shared environments
+            conda_prefix = os.environ.get("SNAKEMAKE_CONDA_PREFIX", os.path.expanduser("~/.snakemake/conda"))
+            cmd_list.extend(["--conda-prefix", conda_prefix])
 
         # Add targets if they exist
         if outputs:
@@ -242,7 +246,16 @@ def _generate_wrapper_snakefile(
     
     # Params
     if params is not None:
-            # For other types, convert to string representation
+        if isinstance(params, dict):
+            # Format dict with each key-value pair on its own line, indented properly
+            param_lines = [f"    {k}=\"{v}\"" if isinstance(v, str) else f"    {k}={v}" for k, v in params.items()]
+            rule_parts.append(f"    params:")
+            rule_parts.extend(param_lines)
+        elif isinstance(params, list):
+            # Convert list to Python list representation for use in Snakefile
+            rule_parts.append(f"    params: {repr(params)}")
+        else:
+            # For other types or single values
             rule_parts.append(f"    params: {repr(params)}")
     
     # Log

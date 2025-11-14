@@ -1,7 +1,7 @@
 """
 A direct logic integration test for wrapper execution.
 
-This test loads cached wrapper metadata and executes demos using run_wrapper_test.
+This test loads cached wrapper metadata and executes demos using run_demo.
 If the cache directory doesn't exist, it will run the parsing command first.
 """
 import pytest
@@ -9,7 +9,6 @@ import asyncio
 import logging
 import os
 import json
-import tempfile
 import subprocess
 from pathlib import Path
 from snakemake_mcp_server.fastapi_app import WrapperMetadata
@@ -84,20 +83,19 @@ def load_cached_wrapper_metadata(wrappers_dir: str) -> list[WrapperMetadata]:
 @pytest.mark.asyncio
 async def test_first_wrapper_demo():
     """
-    Tests all cached wrapper demos using run_wrapper function directly
-    with individual temporary workdirs for each demo.
+    Tests the first cached wrapper demo using run_demo function directly.
     """
     # Use the environment variable to get the snakebase directory
     snakebase_dir = os.environ.get("SNAKEBASE_DIR", "./snakebase")
     wrappers_path = os.path.join(snakebase_dir, "snakemake-wrappers")
     
-    logging.info(f"Starting test for all cached wrapper demos with individual workdirs from: {wrappers_path}")
+    logging.info(f"Starting test for first cached wrapper demo from: {wrappers_path}")
 
     wrappers = load_cached_wrapper_metadata(wrappers_path)
     if not wrappers:
         pytest.skip("No cached wrappers found, skipping cached demo test.")
 
-    logging.info(f"Found {len(wrappers)} cached wrappers. Testing all demos with individual workdirs.")
+    logging.info(f"Found {len(wrappers)} cached wrappers. Testing first demo...")
 
     successful_demos = 0
     failed_demos = 0
@@ -137,47 +135,26 @@ async def test_first_wrapper_demo():
                 continue
 
 
-            # Create a unique temporary workdir for this demo
-            with tempfile.TemporaryDirectory() as workdir:
-                try:
-                    # Copy input files from the wrapper's test directory to the workdir
-                    # The workdir is specified in the payload
-                    demo_workdir = payload.get('workdir')
-                    if demo_workdir:
-                        import shutil
-                        # Find all files in the demo workdir and copy them to the temporary workdir
-                        if os.path.exists(demo_workdir):
-                            for item in os.listdir(demo_workdir):
-                                source = os.path.join(demo_workdir, item)
-                                destination = os.path.join(workdir, item)
-                                if os.path.isfile(source):
-                                    shutil.copy2(source, destination)
-                                elif os.path.isdir(source):
-                                    shutil.copytree(source, destination)
-                    
-                    # Execute the wrapper with the specific workdir
-                    logging.info(f"    Demo {i+1}: Executing in workdir {workdir}...")
-                    from snakemake_mcp_server.wrapper_runner import run_wrapper
-                    result = await run_wrapper(
-                        wrapper_name=wrapper_name,
-                        workdir=workdir,
-                        inputs=inputs,
-                        outputs=outputs,
-                        params=params
-                    )
+            # Execute the wrapper using run_demo which handles input file copying
+            logging.info(f"    Demo {i+1}: Executing demo...")
+            demo_workdir = payload.get('workdir')
+            from snakemake_mcp_server.demo_runner import run_demo
+            result = await run_demo(
+                wrapper_name=wrapper_name,
+                inputs=inputs,
+                outputs=outputs,
+                params=params,
+                demo_workdir=demo_workdir  # Pass the demo workdir for input file copying
+            )
 
-                    if result.get("status") == "success":
-                        logging.info(f"    Demo {i+1}: SUCCESS")
-                        successful_demos += 1
-                    else:
-                        logging.error(f"    Demo {i+1}: FAILED")
-                        logging.error(f"      Exit Code: {result.get('exit_code')}")
-                        logging.error(f"      Stderr: {result.get('stderr')}")
-                        failed_demos += 1
-
-                except Exception as e:
-                    logging.error(f"    Demo {i+1}: EXCEPTION during execution: {e}", exc_info=True)
-                    failed_demos += 1
+            if result.get("status") == "success":
+                logging.info(f"    Demo {i+1}: SUCCESS")
+                successful_demos += 1
+            else:
+                logging.error(f"    Demo {i+1}: FAILED")
+                logging.error(f"      Exit Code: {result.get('exit_code')}")
+                logging.error(f"      Stderr: {result.get('stderr')}")
+                failed_demos += 1
 
             # Mark that we've executed the first demo and break out of loops
             first_demo_executed = True

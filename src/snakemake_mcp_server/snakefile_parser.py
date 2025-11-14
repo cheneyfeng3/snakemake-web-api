@@ -23,11 +23,30 @@ def _value_serializer(val: Any) -> Any:
             return val._plainstrings()
         except:
             return str(val)
+    # Handle Snakemake params object which has items() method and specific attributes
+    if type(val).__name__ == 'Params' and hasattr(val, 'items') and callable(getattr(val, 'items')):
+        # This is specifically a Snakemake Params object - serialize as dict with its items
+        try:
+            return {str(k): _value_serializer(v) for k, v in val.items()}
+        except:
+            pass  # If items method doesn't work, continue to other checks
     if isinstance(val, dict) or hasattr(val, 'items'):
         try:
             return {str(k): _value_serializer(v) for k, v in val.items()}
         except:
             return str(val)
+    # Handle other objects that might have attributes
+    if hasattr(val, '__dict__'):
+        # Try to convert object attributes to dict
+        try:
+            result = {}
+            for attr_name, attr_value in val.__dict__.items():
+                if not attr_name.startswith('_'):  # Skip private attributes
+                    result[attr_name] = _value_serializer(attr_value)
+            if result:
+                return result
+        except:
+            pass
     return str(val)
 
 
