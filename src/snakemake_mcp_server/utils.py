@@ -1,8 +1,45 @@
 """
 Utility functions for handling Snakemake API responses.
 """
+import logging
+import shutil
+import os
+from pathlib import Path
 from typing import Any, Optional
 from .fastapi_app import SnakemakeResponse
+
+logger = logging.getLogger(__name__)
+
+
+def setup_demo_workdir(demo_workdir: str, workdir: str):
+    """
+    Copies all files and directories from a demo source to a destination workdir.
+    
+    Args:
+        demo_workdir (str): The source directory containing the demo files.
+        workdir (str): The destination directory where files will be copied.
+    """
+    if not demo_workdir or not os.path.exists(demo_workdir):
+        logger.warning(f"Demo workdir '{demo_workdir}' not provided or does not exist. Skipping file copy.")
+        return
+
+    demo_path = Path(demo_workdir)
+    dest_path = Path(workdir)
+    dest_path.mkdir(parents=True, exist_ok=True)
+
+    logger.debug(f"Copying demo files from {demo_path} to {dest_path}")
+    for item in demo_path.iterdir():
+        source_item = demo_path / item.name
+        dest_item = dest_path / item.name
+        
+        try:
+            if source_item.is_file():
+                shutil.copy2(source_item, dest_item)
+            elif source_item.is_dir():
+                shutil.copytree(source_item, dest_item)
+        except Exception as e:
+            logger.error(f"Failed to copy item {source_item} to {dest_item}: {e}")
+            raise
 
 
 def extract_response_status(data: Any) -> Optional[str]:

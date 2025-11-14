@@ -410,13 +410,15 @@ def verify(ctx, log_level, dry_run, by_api):
                                 status_data = status_response.json()
                                 status = status_data.get('status')
                                 
-                                if status == 'COMPLETED':
+                                if status == 'completed':
                                     logger.info(f"    Demo {i+1}: SUCCESS (API)")
                                     successful_demos += 1
                                     break
-                                elif status == 'FAILED':
+                                elif status == 'failed':
                                     logger.error(f"    Demo {i+1}: FAILED (API)")
-                                    logger.error(f"      Status: {status}")
+                                    result = status_data.get('result', {})
+                                    logger.error(f"      Exit Code: {result.get('exit_code')}")
+                                    logger.error(f"      Stderr: {result.get('stderr') or 'No stderr output'}")
                                     failed_demos += 1
                                     break
                                 else:
@@ -424,6 +426,7 @@ def verify(ctx, log_level, dry_run, by_api):
                                     logger.debug(f"      Job status: {status}, waiting...")
                                     time.sleep(10)  # Wait 10 seconds before polling again
                                     attempts += 1
+                                    # Check again on the next iteration
                             else:
                                 logger.error(f"    Demo {i+1}: FAILED to get job status (HTTP {status_response.status_code})")
                                 failed_demos += 1

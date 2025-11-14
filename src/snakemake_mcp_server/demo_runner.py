@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 from typing import Union, Dict, List, Optional
 from .wrapper_runner import run_wrapper
+from .utils import setup_demo_workdir
 
 logger = logging.getLogger(__name__)
 
@@ -60,20 +61,8 @@ async def run_demo(
             workdir_to_use = Path(workdir_to_use).resolve()
             os.makedirs(workdir_to_use, exist_ok=True)
         
-        # Copy input files from demo workdir to the execution workdir
-        if demo_workdir and os.path.exists(demo_workdir):
-            demo_workdir_path = Path(demo_workdir)
-            workdir_path = Path(workdir_to_use)
-            
-            # Copy all files from demo workdir to workdir
-            for item in demo_workdir_path.iterdir():
-                source_item = demo_workdir_path / item.name
-                dest_item = workdir_path / item.name
-                
-                if source_item.is_file():
-                    shutil.copy2(source_item, dest_item)
-                elif source_item.is_dir():
-                    shutil.copytree(source_item, dest_item)
+        # Use the shared utility to copy input files from demo workdir
+        setup_demo_workdir(demo_workdir=demo_workdir, workdir=workdir_to_use)
         
         # Execute the wrapper in the prepared workdir
         result = await run_wrapper(
