@@ -85,6 +85,8 @@ def verify(ctx, log_level, dry_run, by_api):
     # Execute all demos
     successful_demos = 0
     failed_demos = 0
+    first_success_wrapper = None
+    first_failure_wrapper = None
 
     for wrapper in wrappers:
         if not wrapper.demos:
@@ -149,6 +151,8 @@ def verify(ctx, log_level, dry_run, by_api):
                                 if status == 'completed':
                                     logger.info(f"    Demo {i+1}: SUCCESS (API)")
                                     successful_demos += 1
+                                    if first_success_wrapper is None:
+                                        first_success_wrapper = wrapper.path
                                     break
                                 elif status == 'failed':
                                     logger.error(f"    Demo {i+1}: FAILED (API)")
@@ -156,6 +160,8 @@ def verify(ctx, log_level, dry_run, by_api):
                                     logger.error(f"      Exit Code: {result.get('exit_code')}")
                                     logger.error(f"      Stderr: {result.get('stderr') or 'No stderr output'}")
                                     failed_demos += 1
+                                    if first_failure_wrapper is None:
+                                        first_failure_wrapper = wrapper.path
                                     break
                                 else:
                                     # Still running, wait before polling again
@@ -166,22 +172,32 @@ def verify(ctx, log_level, dry_run, by_api):
                             else:
                                 logger.error(f"    Demo {i+1}: FAILED to get job status (HTTP {status_response.status_code})")
                                 failed_demos += 1
+                                if first_failure_wrapper is None:
+                                    first_failure_wrapper = wrapper.path
                                 break
                         else:
                             # Timeout reached
                             logger.error(f"    Demo {i+1}: TIMEOUT waiting for job completion")
                             failed_demos += 1
+                            if first_failure_wrapper is None:
+                                first_failure_wrapper = wrapper.path
                     else:
                         logger.error(f"    Demo {i+1}: FAILED to submit job to API (HTTP {response.status_code})")
                         logger.error(f"      Response: {response.text}")
                         failed_demos += 1
+                        if first_failure_wrapper is None:
+                            first_failure_wrapper = wrapper.path
                         
                 except requests.exceptions.RequestException as e:
                     logger.error(f"    Demo {i+1}: FAILED due to connection error: {e}")
                     failed_demos += 1
+                    if first_failure_wrapper is None:
+                        first_failure_wrapper = wrapper.path
                 except Exception as e:
                     logger.error(f"    Demo {i+1}: FAILED with exception: {e}")
                     failed_demos += 1
+                    if first_failure_wrapper is None:
+                        first_failure_wrapper = wrapper.path
             else:
                 # Use the original logic (direct demo runner)
                 wrapper_name = payload.get('wrapper', '').replace('file://', '')
@@ -211,17 +227,25 @@ def verify(ctx, log_level, dry_run, by_api):
                 if result.get("status") == "success":
                     logger.info(f"    Demo {i+1}: SUCCESS")
                     successful_demos += 1
+                    if first_success_wrapper is None:
+                        first_success_wrapper = wrapper.path
                 else:
                     logger.error(f"    Demo {i+1}: FAILED")
                     logger.error(f"      Exit Code: {result.get('exit_code')}")
                     logger.error(f"      Stderr: {result.get('stderr') or 'No stderr output'}")
                     failed_demos += 1
+                    if first_failure_wrapper is None:
+                        first_failure_wrapper = wrapper.path
 
     logger.info("="*60)
     logger.info("Verification Summary")
     logger.info(f"Successful demos: {successful_demos}")
     logger.info(f"Failed demos: {failed_demos}")
     logger.info(f"Total demos: {successful_demos + failed_demos}")
+    if first_success_wrapper:
+        logger.info(f"First successful wrapper: {first_success_wrapper}")
+    if first_failure_wrapper:
+        logger.info(f"First failed wrapper: {first_failure_wrapper}")
     logger.info("="*60)
 
     logger.info(f"Verification completed with {failed_demos} failed demos out of {successful_demos + failed_demos} total demos.")
