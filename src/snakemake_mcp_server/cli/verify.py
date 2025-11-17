@@ -19,8 +19,9 @@ logger = logging.getLogger(__name__)
               help="Logging level. Default: INFO")
 @click.option("--dry-run", is_flag=True, help="Show what would be executed without running it.")
 @click.option("--by-api", default=None, help="Verify using the /tool-processes API endpoint with the specified server URL (e.g., http://127.0.0.1:8082). If not provided, will use direct demo runner.")
+@click.option("--fast-fail", is_flag=True, help="Exit immediately on the first failed demo.")
 @click.pass_context
-def verify(ctx, log_level, dry_run, by_api):
+def verify(ctx, log_level, dry_run, by_api, fast_fail):
     """Verify all cached wrapper demos by executing them with appropriate test data."""
     # Reconfigure logging to respect the user's choice
     logging.basicConfig(
@@ -87,6 +88,7 @@ def verify(ctx, log_level, dry_run, by_api):
     failed_demos = 0
     first_success_wrapper = None
     first_failure_wrapper = None
+    stop_execution = False
 
     for wrapper in wrappers:
         if not wrapper.demos:
@@ -96,6 +98,7 @@ def verify(ctx, log_level, dry_run, by_api):
         for i, demo in enumerate(wrapper.demos):
             payload = demo.payload
             logger.info(f"  - Processing Demo {i+1}...")
+            demo_failed = False
 
             if by_api:
                 # Use the API endpoint to execute the demo
@@ -162,18 +165,19 @@ def verify(ctx, log_level, dry_run, by_api):
                                     failed_demos += 1
                                     if first_failure_wrapper is None:
                                         first_failure_wrapper = wrapper.path
+                                    demo_failed = True
                                     break
                                 else:
                                     # Still running, wait before polling again
                                     logger.debug(f"      Job status: {status}, waiting...")
                                     time.sleep(10)  # Wait 10 seconds before polling again
                                     attempts += 1
-                                    # Check again on the next iteration
                             else:
                                 logger.error(f"    Demo {i+1}: FAILED to get job status (HTTP {status_response.status_code})")
                                 failed_demos += 1
                                 if first_failure_wrapper is None:
                                     first_failure_wrapper = wrapper.path
+                                demo_failed = True
                                 break
                         else:
                             # Timeout reached
@@ -181,23 +185,27 @@ def verify(ctx, log_level, dry_run, by_api):
                             failed_demos += 1
                             if first_failure_wrapper is None:
                                 first_failure_wrapper = wrapper.path
+                            demo_failed = True
                     else:
                         logger.error(f"    Demo {i+1}: FAILED to submit job to API (HTTP {response.status_code})")
                         logger.error(f"      Response: {response.text}")
                         failed_demos += 1
                         if first_failure_wrapper is None:
                             first_failure_wrapper = wrapper.path
+                        demo_failed = True
                         
                 except requests.exceptions.RequestException as e:
                     logger.error(f"    Demo {i+1}: FAILED due to connection error: {e}")
                     failed_demos += 1
                     if first_failure_wrapper is None:
                         first_failure_wrapper = wrapper.path
+                    demo_failed = True
                 except Exception as e:
                     logger.error(f"    Demo {i+1}: FAILED with exception: {e}")
                     failed_demos += 1
                     if first_failure_wrapper is None:
                         first_failure_wrapper = wrapper.path
+                    demo_failed = True
             else:
                 # Use the original logic (direct demo runner)
                 wrapper_name = payload.get('wrapper', '').replace('file://', '')
@@ -236,6 +244,15 @@ def verify(ctx, log_level, dry_run, by_api):
                     failed_demos += 1
                     if first_failure_wrapper is None:
                         first_failure_wrapper = wrapper.path
+                    demo_failed = True
+
+            if demo_failed and fast_fail:
+                logger.error("Fast fail enabled. Exiting on first failure.")
+                stop_execution = True
+                break  # break from inner demo loop
+        
+        if stop_execution:
+            break  # break from outer wrapper loop
 
     logger.info("="*60)
     logger.info("Verification Summary")
