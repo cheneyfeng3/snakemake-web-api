@@ -25,18 +25,15 @@ def _value_serializer(val: Any) -> Any:
         # Try to get the names using _get_names method (common for Snakemake Namedlist)
         if hasattr(val, '_get_names'):
             logger.debug("  Params object has _get_names method, entering processing block")
-            # _get_names() returns a list of tuples (name, (index, extra_info))
-            # e.g. [('input_object_name', (0, None)), ('extra', (1, None))]
-            names = list(val._get_names())  # Convert generator to list
+            names = list(val._get_names())
             logger.debug(f"  Names from _get_names: {names}")
             
             params_dict = {}
             for name, (index, _) in names:
                 try:
-                    # Get the value using the index
                     value = val[index]
                     logger.debug(f"  Processing param '{name}' at index {index}, value: {value} (type: {type(value)})")
-                    serialized_value = _value_serializer(value)  # Recursively serialize the value
+                    serialized_value = _value_serializer(value)
                     logger.debug(f"    Serialized value: {serialized_value} (type: {type(serialized_value)})")
                     params_dict[name] = serialized_value
                 except Exception as e:
@@ -48,19 +45,19 @@ def _value_serializer(val: Any) -> Any:
             logger.debug("  Params object doesn't have _get_names method, falling back to string representation")
             return str(val)
 
+    # Explicitly handle Snakemake's Namedlist objects (InputFiles, OutputFiles, Wildcards)
+    # This is more robust than relying on _plainstrings()
+    if hasattr(val, '_names') and val._names:
+        logger.debug(f"Serializing Namedlist with names: {val._names}")
+        # It has named items, serialize as a dictionary
+        return {name: _value_serializer(val[index_tuple[0]]) for name, index_tuple in val._names.items()}
+
     if isinstance(val, Path): # Handle Path objects
         return str(val)
     if callable(val):
         return "<callable>"
     if isinstance(val, (str, int, float, bool)) or val is None:
         return val
-    # Special handling for Snakemake's Namedlist objects (like InputFiles/OutputFiles)
-    # must come BEFORE the generic list/tuple check.
-    if hasattr(val, '_plainstrings'):
-        try:
-            return val._plainstrings()
-        except:
-            return str(val)
     if isinstance(val, (list, set, tuple)):
         return [_value_serializer(v) for v in val]
 
@@ -69,13 +66,13 @@ def _value_serializer(val: Any) -> Any:
             return {str(k): _value_serializer(v) for k, v in val.items()}
         except:
             return str(val)
-    # Handle other objects that might have attributes
+            
+    # Fallback for other objects
     if hasattr(val, '__dict__'):
-        # Try to convert object attributes to dict
         try:
             result = {}
             for attr_name, attr_value in val.__dict__.items():
-                if not attr_name.startswith('_'):  # Skip private attributes
+                if not attr_name.startswith('_'):
                     result[attr_name] = _value_serializer(attr_value)
             if result:
                 return result
