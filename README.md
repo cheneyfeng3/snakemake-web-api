@@ -17,6 +17,7 @@ The Snakemake Web API provides robust endpoints for remotely executing Snakemake
 ### Prerequisites
 
 * Install `uv` package manager from [https://github.com/astral-sh/uv](https://github.com/astral-sh/uv)
+* Install `conda` (either [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Mambaforge](https://github.com/conda-forge/miniforge#mambaforge))
 * Ensure you have Python 3.12+ installed
 
 ### Installation Steps
@@ -120,33 +121,21 @@ curl http://127.0.0.1:8082/tools
 
 ### 5. Run a Demo Wrapper
 
-To run a demo wrapper, first get a demo case:
+To run a demo wrapper automatically, use the provided script that executes the demo case from the API:
 
 ```bash
-curl http://127.0.0.1:8082/demo-case
+# Make sure the script is executable
+chmod +x run_demo_wrapper.sh
+
+# Run the demo wrapper
+./run_demo_wrapper.sh
 ```
 
-Then execute the demo using the POST endpoint:
-
-```bash
-curl -X POST http://127.0.0.1:8082/tool-processes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "wrapper_name": "bio/samtools/faidx",
-    "inputs": ["test_input.fasta"],
-    "outputs": ["test_input.fasta.fai"]
-  }'
-```
-
-### 6. Verify Installation
-
-You can also verify the installation with the verify command:
-
-```bash
-swa verify --dry-run
-```
-
-This will show you what demos would be executed without actually running them.
+This script will:
+1. Fetch a demo case from the `/demo-case` endpoint
+2. Execute the wrapper via the `/tool-processes` REST API endpoint
+3. Poll the job status until completion
+4. Verify the final job status
 
 ## Running the Server
 
