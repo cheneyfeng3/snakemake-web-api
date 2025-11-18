@@ -34,7 +34,13 @@ def _value_serializer(val: Any) -> Any:
     # 2. Handle Namedlists with named items (which act as dicts).
     # This MUST come before the generic list check.
     if hasattr(val, '_names') and val._names:
-        return {name: _value_serializer(val[index_tuple[0]]) for name, index_tuple in val._names.items()}
+        result = {}
+        for name, index_tuple in val._names.items():
+            start, end = index_tuple
+            # Correctly handle both single items (end is None) and slices
+            item = val[start] if end is None else val[start:end]
+            result[name] = _value_serializer(item)
+        return result
 
     # 3. Handle all other list-like objects (including Namedlists without names).
     if isinstance(val, (list, set, tuple)):
