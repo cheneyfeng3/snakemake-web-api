@@ -20,7 +20,6 @@ def _value_serializer(val: Any) -> Any:
     """
     # 1. Handle Params, which is a special Namedlist that must be treated as a dict.
     if type(val).__name__ == 'Params':
-        logger.debug(f"Serializing Snakemake Params object: type={type(val)}, value={val}")
         if hasattr(val, '_get_names'):
             params_dict = {}
             for name, (index, _) in list(val._get_names()):
@@ -35,7 +34,6 @@ def _value_serializer(val: Any) -> Any:
     # 2. Handle Namedlists with named items (which act as dicts).
     # This MUST come before the generic list check.
     if hasattr(val, '_names') and val._names:
-        logger.debug(f"Serializing Namedlist with names: {val._names}")
         return {name: _value_serializer(val[index_tuple[0]]) for name, index_tuple in val._names.items()}
 
     # 3. Handle all other list-like objects (including Namedlists without names).
@@ -43,7 +41,7 @@ def _value_serializer(val: Any) -> Any:
         return [_value_serializer(v) for v in val]
 
     # 4. Handle single file objects (IOFile) that are not lists.
-    if hasattr(val, 'is_directory'):
+    if hasattr(val, 'is_directory') and not isinstance(val, list):
         if val.is_directory:
             return {'path': str(val), 'is_directory': True}
         return str(val)
