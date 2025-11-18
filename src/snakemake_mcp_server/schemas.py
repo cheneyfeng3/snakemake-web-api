@@ -79,6 +79,7 @@ class DemoCall(BaseModel):
 
 class WrapperMetadata(BaseModel):
     name: str
+    classic_name: str
     description: Optional[str] = None
     url: Optional[str] = None
     authors: Optional[List[str]] = None
@@ -96,7 +97,6 @@ class WrapperMetadata(BaseModel):
     env_modules: Optional[List[str]] = None
     group: Optional[str] = None
     notes: Optional[List[str]] = None
-    path: str
     demos: Optional[List[DemoCall]] = None
     demo_count: Optional[int] = 0  # For summary view
 

@@ -92,7 +92,7 @@ def verify(ctx, log_level, dry_run, by_api, fast_fail, force, no_cache, include)
     # Filter wrappers if --include is used
     if include:
         include_set = set(include)
-        wrappers = [w for w in all_wrappers if w.path in include_set]
+        wrappers = [w for w in all_wrappers if w.name in include_set]
         logger.info(f"Filtered to {len(wrappers)} wrappers based on --include option.")
     else:
         wrappers = all_wrappers
@@ -116,9 +116,9 @@ def verify(ctx, log_level, dry_run, by_api, fast_fail, force, no_cache, include)
         for wrapper in wrappers:
             if wrapper.demos:
                 for i, demo in enumerate(wrapper.demos):
-                    demo_id = f"{wrapper.path}:{i}"
+                    demo_id = f"{wrapper.name}:{i}"
                     if not force and not no_cache and verify_cache.get(demo_id) == "success":
-                        logger.info(f"  Would skip demo for wrapper (previously successful): {wrapper.path}")
+                        logger.info(f"  Would skip demo for wrapper (previously successful): {wrapper.name}")
                         continue
                     
                     payload = demo.payload
@@ -141,9 +141,9 @@ def verify(ctx, log_level, dry_run, by_api, fast_fail, force, no_cache, include)
         if not wrapper.demos:
             continue
 
-        logger.info(f"Verifying demos for wrapper: {wrapper.path}")
+        logger.info(f"Verifying demos for wrapper: {wrapper.name}")
         for i, demo in enumerate(wrapper.demos):
-            demo_id = f"{wrapper.path}:{i}"
+            demo_id = f"{wrapper.name}:{i}"
             
             if not force and not no_cache and verify_cache.get(demo_id) == "success":
                 logger.info(f"  - Demo {i+1}: SKIPPED (previously successful, use --force to re-run)")
@@ -162,7 +162,7 @@ def verify(ctx, log_level, dry_run, by_api, fast_fail, force, no_cache, include)
                     # Get snakebase_dir from environment
                     snakebase_dir = os.path.expanduser(os.environ.get("SNAKEBASE_DIR", "~/snakebase"))
                     wrappers_path = os.path.join(snakebase_dir, "snakemake-wrappers")
-                    demo_workdir = os.path.join(wrappers_path, wrapper.path, "test")
+                    demo_workdir = os.path.join(wrappers_path, wrapper.name, "test")
 
                     # Prepare the API payload
                     api_payload = {
@@ -197,14 +197,14 @@ def verify(ctx, log_level, dry_run, by_api, fast_fail, force, no_cache, include)
                                 if status == 'completed':
                                     logger.info(f"    Demo {i+1}: SUCCESS (API)")
                                     successful_demos += 1
-                                    if first_success_wrapper is None: first_success_wrapper = wrapper.path
+                                    if first_success_wrapper is None: first_success_wrapper = wrapper.name
                                     if not no_cache: newly_successful_demos[demo_id] = "success"
                                     break
                                 elif status == 'failed':
                                     logger.error(f"    Demo {i+1}: FAILED (API)")
                                     # ... (error logging)
                                     failed_demos += 1
-                                    if first_failure_wrapper is None: first_failure_wrapper = wrapper.path
+                                    if first_failure_wrapper is None: first_failure_wrapper = wrapper.name
                                     demo_failed = True
                                     break
                                 else:
@@ -213,23 +213,23 @@ def verify(ctx, log_level, dry_run, by_api, fast_fail, force, no_cache, include)
                             else:
                                 # ... (failure logic)
                                 failed_demos += 1
-                                if first_failure_wrapper is None: first_failure_wrapper = wrapper.path
+                                if first_failure_wrapper is None: first_failure_wrapper = wrapper.name
                                 demo_failed = True
                                 break
                         else: # Timeout
                             failed_demos += 1
-                            if first_failure_wrapper is None: first_failure_wrapper = wrapper.path
+                            if first_failure_wrapper is None: first_failure_wrapper = wrapper.name
                             demo_failed = True
                     else:
                         # ... (failure logic)
                         failed_demos += 1
-                        if first_failure_wrapper is None: first_failure_wrapper = wrapper.path
+                        if first_failure_wrapper is None: first_failure_wrapper = wrapper.name
                         demo_failed = True
-                        
+
                 except Exception as e:
                     # ... (failure logic)
                     failed_demos += 1
-                    if first_failure_wrapper is None: first_failure_wrapper = wrapper.path
+                    if first_failure_wrapper is None: first_failure_wrapper = wrapper.name
                     demo_failed = True
             else:
                 # Direct demo runner logic
@@ -249,14 +249,14 @@ def verify(ctx, log_level, dry_run, by_api, fast_fail, force, no_cache, include)
                 if result.get("status") == "success":
                     logger.info(f"    Demo {i+1}: SUCCESS")
                     successful_demos += 1
-                    if first_success_wrapper is None: first_success_wrapper = wrapper.path
+                    if first_success_wrapper is None: first_success_wrapper = wrapper.name
                     if not no_cache: newly_successful_demos[demo_id] = "success"
                 else:
                     logger.error(f"    Demo {i+1}: FAILED")
                     logger.error(f"      Exit Code: {result.get('exit_code')}")
                     logger.error(f"      Stderr: {result.get('stderr') or 'No stderr output'}")
                     failed_demos += 1
-                    if first_failure_wrapper is None: first_failure_wrapper = wrapper.path
+                    if first_failure_wrapper is None: first_failure_wrapper = wrapper.name
                     demo_failed = True
 
             if demo_failed and fast_fail:

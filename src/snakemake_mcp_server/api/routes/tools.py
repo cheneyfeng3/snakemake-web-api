@@ -54,19 +54,19 @@ async def get_tools(request: Request):
         logger.error(f"Error getting tools from cache: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error getting tools from cache: {str(e)}")
 
-@router.get("/tools/{tool_path:path}", response_model=WrapperMetadata, operation_id="get_tool_meta")
-async def get_tool_meta(tool_path: str, request: Request):
+@router.get("/tools/{tool_name:path}", response_model=WrapperMetadata, operation_id="get_tool_meta")
+async def get_tool_meta(tool_name: str, request: Request):
     """
     Get full metadata for a specific tool, including demos, from the cache.
     """
-    logger.info(f"Received request to get metadata for tool from cache: {tool_path}")
+    logger.info(f"Received request to get metadata for tool from cache: {tool_name}")
     
-    cache_file = Path(request.app.state.wrappers_path) / ".parser" / f"{tool_path}.json"
+    cache_file = Path(request.app.state.wrappers_path) / ".parser" / f"{tool_name}.json"
 
     if not cache_file.exists():
         raise HTTPException(
             status_code=404, 
-            detail=f"Tool metadata cache not found for: {tool_path}. Run 'swa parse' to generate it."
+            detail=f"Tool metadata cache not found for: {tool_name}. Run 'swa parse' to generate it."
         )
     
     try:
@@ -74,5 +74,5 @@ async def get_tool_meta(tool_path: str, request: Request):
             data = json.load(f)
         return WrapperMetadata(**data)
     except Exception as e:
-        logger.error(f"Error loading cached metadata for {tool_path}: {str(e)}")
+        logger.error(f"Error loading cached metadata for {tool_name}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error loading cached metadata: {str(e)}")

@@ -58,7 +58,8 @@ def parse(ctx):
                     enhanced_demos = None
                 
                 wrapper_meta = WrapperMetadata(
-                    name=meta_data.get('name', os.path.basename(root)),
+                    name=wrapper_rel_path,
+                    classic_name=meta_data.get('name', os.path.basename(root)),
                     description=meta_data.get('description'),
                     url=meta_data.get('url'),
                     authors=meta_data.get('authors'),
@@ -66,7 +67,6 @@ def parse(ctx):
                     output=meta_data.get('output'),
                     params=meta_data.get('params'),
                     notes=notes_data,
-                    path=wrapper_rel_path,
                     demos=enhanced_demos,
                     demo_count=num_demos
                 )

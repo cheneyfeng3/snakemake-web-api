@@ -29,7 +29,7 @@ async def tool_process_endpoint(request: UserSnakemakeWrapperRequest, background
 
     # 1. Load WrapperMetadata to infer hidden parameters
     wrapper_metadata_list = load_wrapper_metadata(http_request.app.state.wrappers_path)
-    wrapper_meta = next((wm for wm in wrapper_metadata_list if wm.path == request.wrapper_name), None)
+    wrapper_meta = next((wm for wm in wrapper_metadata_list if wm.name == request.wrapper_name), None)
 
     if not wrapper_meta:
         raise HTTPException(status_code=404, detail=f"Wrapper '{request.wrapper_name}' not found.")
