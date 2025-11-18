@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 def setup_demo_workdir(demo_workdir: str, workdir: str):
     """
     Copies all files and directories from a demo source to a destination workdir.
+    Handles symbolic links by copying them as symlinks.
     
     Args:
         demo_workdir (str): The source directory containing the demo files.
@@ -25,21 +26,18 @@ def setup_demo_workdir(demo_workdir: str, workdir: str):
 
     demo_path = Path(demo_workdir)
     dest_path = Path(workdir)
+    
+    # Ensure the destination directory exists
     dest_path.mkdir(parents=True, exist_ok=True)
 
     logger.debug(f"Copying demo files from {demo_path} to {dest_path}")
-    for item in demo_path.iterdir():
-        source_item = demo_path / item.name
-        dest_item = dest_path / item.name
-        
-        try:
-            if source_item.is_file():
-                shutil.copy2(source_item, dest_item)
-            elif source_item.is_dir():
-                shutil.copytree(source_item, dest_item)
-        except Exception as e:
-            logger.error(f"Failed to copy item {source_item} to {dest_item}: {e}")
-            raise
+    try:
+        # Use shutil.copytree to copy the entire directory, preserving symlinks
+        # and allowing copying into an existing directory.
+        shutil.copytree(demo_path, dest_path, symlinks=True, dirs_exist_ok=True)
+    except Exception as e:
+        logger.error(f"Failed to copy demo directory {demo_path} to {dest_path}: {e}")
+        raise
 
 
 def extract_response_status(data: Any) -> Optional[str]:
