@@ -27,13 +27,16 @@ async def run_workflow(
     target_rule: Optional[str] = None,
     cores: Union[int, str] = "all",
     use_conda: bool = True,
+    use_cache: bool = False,
     timeout: int = 3600,
     job_id: Optional[str] = None,
+    workdir: Optional[str] = None,
 ) -> Dict:
     """
     Executes a Snakemake workflow by merging a config object with the base
     config.yaml and running Snakemake via asyncio.create_subprocess_exec.
     Outputs are redirected to a log file for real-time access.
+    If 'workdir' is provided, execution happens there for isolation.
     """
     temp_config_path = None
     log_file_path = None
@@ -42,21 +45,24 @@ async def run_workflow(
             raise ValueError("workflow_id must be a non-empty string")
 
         workflow_base_path = Path(workflows_dir)
-        workflow_path = workflow_base_path / workflow_id
-        if not workflow_path.exists():
-            raise FileNotFoundError(f"Workflow not found at: {workflow_path}")
+        workflow_source_path = (workflow_base_path / workflow_id).resolve()
+        if not workflow_source_path.exists():
+            raise FileNotFoundError(f"Workflow not found at: {workflow_source_path}")
         
-        workflow_path = workflow_path.resolve()
-        
-        main_snakefile = workflow_path / "workflow" / "Snakefile"
+        # Determine the execution directory
+        execution_path = Path(workdir).resolve() if workdir else workflow_source_path
+        execution_path.mkdir(parents=True, exist_ok=True)
+
+        # Locate the Snakefile (it should be in the execution path now due to isolation setup)
+        main_snakefile = execution_path / "workflow" / "Snakefile"
         if not main_snakefile.exists():
-            # Fallback for workflows that might have Snakefile at the root
-            main_snakefile_root = workflow_path / "Snakefile"
+            main_snakefile_root = execution_path / "Snakefile"
             if not main_snakefile_root.exists():
-                raise FileNotFoundError(f"Main Snakefile not found for workflow at: {main_snakefile} or {main_snakefile_root}")
+                raise FileNotFoundError(f"Main Snakefile not found in execution path: {execution_path}")
             main_snakefile = main_snakefile_root
 
-        original_config_path = workflow_path / "config" / "config.yaml"
+        # Load base config from the original source to ensure we have the defaults
+        original_config_path = workflow_source_path / "config" / "config.yaml"
         if not original_config_path.exists():
             logger.warning(f"Original config.yaml not found for workflow at: {original_config_path}. Starting with an empty config.")
             base_config = {}
@@ -67,7 +73,8 @@ async def run_workflow(
         # Deep merge the user's config overrides into the base config
         merged_config = deep_merge(config_overrides, base_config)
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False, dir=workflow_path) as tmp_config_file:
+        # Write the temporary config file into the execution directory
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False, dir=execution_path) as tmp_config_file:
             yaml.dump(merged_config, tmp_config_file)
             temp_config_path = Path(tmp_config_file.name)
         
@@ -94,17 +101,23 @@ async def run_workflow(
 
         if use_conda:
             command.append("--use-conda")
+            # Use a global conda prefix to share environments across isolated runs
+            conda_prefix = os.environ.get("SNAKEMAKE_CONDA_PREFIX", os.path.expanduser("~/.snakemake/conda"))
+            command.extend(["--conda-prefix", conda_prefix])
+        
+        if use_cache:
+            command.append("--cache")
         
         if target_rule:
             command.append(target_rule)
 
-        logger.info(f"Executing command: {' '.join(command)} in {workflow_path}")
+        logger.info(f"Executing command: {' '.join(command)} in {execution_path}")
         
         process = await asyncio.create_subprocess_exec(
             *command,
             stdout=log_file if log_file else asyncio.subprocess.PIPE,
             stderr=log_file if log_file else asyncio.subprocess.PIPE,
-            cwd=workflow_path
+            cwd=execution_path
         )
 
         # Register process for potential cancellation

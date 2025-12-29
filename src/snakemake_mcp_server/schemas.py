@@ -53,10 +53,12 @@ class PlatformRunParams(BaseModel):
 class InternalWrapperRequest(UserProvidedParams, PlatformRunParams):
     wrapper_id: str
     workdir: Optional[str] = None
+    use_cache: bool = False
 
 
 class UserWrapperRequest(UserProvidedParams):
     wrapper_id: str
+    use_cache: bool = False
 
 
 # Define Pydantic models for request/response for Workflows
@@ -66,6 +68,7 @@ class UserWorkflowRequest(BaseModel):
     target_rule: Optional[str] = None
     cores: Optional[Union[int, str]] = "all"
     use_conda: bool = True
+    use_cache: bool = False
 
 
 class SnakemakeResponse(BaseModel):

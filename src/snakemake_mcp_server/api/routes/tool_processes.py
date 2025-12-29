@@ -98,6 +98,7 @@ chr1	123	.	G	A	.	PASS	.
         env_modules=inferred_env_modules,
         group=inferred_group,
         workdir=workdir, # Use the dynamically generated workdir
+        use_cache=request.use_cache, # Pass through the cache flag
     )
 
     job_id = str(uuid.uuid4())

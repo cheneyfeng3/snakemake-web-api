@@ -2,6 +2,8 @@ import logging
 import uuid
 import asyncio
 import os
+import tempfile
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status, Request
@@ -9,25 +11,52 @@ from fastapi.responses import FileResponse
 from ...workflow_runner import run_workflow
 from ...schemas import UserWorkflowRequest, Job, JobList, JobStatus, JobSubmissionResponse
 from ...jobs import job_store, run_and_update_job, active_processes
+from ...utils import prepare_isolated_workdir
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 async def run_workflow_in_background(job_id: str, request: UserWorkflowRequest, workflows_dir: str):
     """
-    A wrapper function to run the synchronous 'run_workflow' function in the background
-    and update the job store with the result.
+    Sets up an isolated execution environment and runs the workflow.
     """
-    # Now that run_workflow is async, we can call it directly
-    await run_and_update_job(job_id, lambda: run_workflow(
-        workflow_id=request.workflow_id,
-        workflows_dir=workflows_dir,
-        config_overrides=request.config,
-        target_rule=request.target_rule,
-        cores=request.cores,
-        use_conda=request.use_conda,
-        job_id=job_id
-    ))
+    # 1. Create a unique execution directory
+    temp_dir = tempfile.mkdtemp()
+    execution_workdir = str(Path(temp_dir).resolve())
+    
+    # 2. Link source files into the execution directory
+    workflow_source_dir = str((Path(workflows_dir) / request.workflow_id).resolve())
+    try:
+        prepare_isolated_workdir(workflow_source_dir, execution_workdir)
+    except Exception as e:
+        logger.error(f"Failed to prepare isolated workdir: {e}")
+        job_store[job_id].status = JobStatus.FAILED
+        job_store[job_id].result = {"status": "failed", "error_message": f"Isolation failed: {str(e)}"}
+        return
+
+    # 3. Run the workflow in the isolated directory
+    async def task():
+        try:
+            result = await run_workflow(
+                workflow_id=request.workflow_id,
+                workflows_dir=workflows_dir,
+                config_overrides=request.config,
+                target_rule=request.target_rule,
+                cores=request.cores,
+                use_conda=request.use_conda,
+                use_cache=request.use_cache,
+                job_id=job_id,
+                workdir=execution_workdir
+            )
+            return result
+        finally:
+            # Cleanup: remove the temporary execution directory after completion
+            # (Optional: you might want to keep it for a while if user needs outputs)
+            # For now, let's keep it until we have a better way to serve output files
+            # or just rely on the absolute paths if they were provided.
+            logger.debug(f"Execution finished. Isolated workdir: {execution_workdir}")
+
+    await run_and_update_job(job_id, task)
 
 
 @router.post(

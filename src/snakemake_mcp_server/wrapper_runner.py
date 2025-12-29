@@ -19,8 +19,10 @@ async def run_wrapper(
     """
     Executes a single Snakemake wrapper by generating a Snakefile and running
     Snakemake via the command line in a non-blocking, asynchronous manner.
+    Outputs are redirected to a log file for real-time access.
     """
     snakefile_path = None  # Initialize to ensure it's available in finally block
+    log_file_path = None
 
     # Infer wrappers_path from environment variable
     snakebase_dir = os.environ.get("SNAKEBASE_DIR")
@@ -86,6 +88,15 @@ async def run_wrapper(
 
         # 3. Build and run Snakemake command using asyncio.subprocess
         
+        # Setup real-time logging to file
+        if job_id:
+            log_dir = Path.home() / ".swa" / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file_path = log_dir / f"{job_id}.log"
+            log_file = open(log_file_path, 'w')
+        else:
+            log_file = None
+
         # Attempt to unlock the directory first to clear any stale locks
         unlock_cmd = [
             "snakemake",
@@ -108,6 +119,9 @@ async def run_wrapper(
             "--forceall",  # Force execution since we are in a temp/isolated context
             "--wrapper-prefix", str(abs_wrappers_path) + os.sep # Add wrapper prefix with trailing slash
         ]
+
+        if request.use_cache:
+            cmd_list.append("--cache")
 
         if resolved_conda_env_path_for_snakefile: # Use the resolved path to decide if --use-conda is needed
             cmd_list.append("--use-conda")
@@ -135,8 +149,8 @@ async def run_wrapper(
         logger.debug(f"Snakemake command list: {cmd_list}")
         process = await asyncio.create_subprocess_exec(
             *cmd_list,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=log_file if log_file else asyncio.subprocess.PIPE,
+            stderr=log_file if log_file else asyncio.subprocess.PIPE,
             cwd=execution_workdir
         )
 
@@ -146,17 +160,23 @@ async def run_wrapper(
             active_processes[job_id] = process
 
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=timeout)
+            if log_file:
+                await asyncio.wait_for(process.wait(), timeout=timeout)
+                stdout = f"Logs redirected to {log_file_path}"
+                stderr = ""
+            else:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=timeout)
+                stdout = stdout_bytes.decode()
+                stderr = stderr_bytes.decode()
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
             return {"status": "failed", "stdout": "", "stderr": f"Execution timed out after {timeout} seconds.", "exit_code": -1, "error_message": f"Execution timed out after {timeout} seconds."}
+        finally:
+            if log_file:
+                log_file.close()
 
-        stdout = stdout_bytes.decode()
-        stderr = stderr_bytes.decode()
-
-        logger.debug(f"Snakemake stdout:\n{stdout}")
-        logger.debug(f"Snakemake stderr:\n{stderr}")
+        logger.debug(f"Snakemake exit code: {process.returncode}")
 
         if process.returncode == 0:
             return {"status": "success", "stdout": stdout, "stderr": stderr, "exit_code": 0}

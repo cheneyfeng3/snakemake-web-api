@@ -40,6 +40,36 @@ def setup_demo_workdir(demo_workdir: str, workdir: str):
         raise
 
 
+def prepare_isolated_workdir(source_dir: str, execution_dir: str):
+    """
+    Symlinks all top-level files and directories from source_dir to execution_dir,
+    excluding the .snakemake directory. This creates an isolated environment 
+    for Snakemake execution.
+    """
+    source_path = Path(source_dir)
+    exec_path = Path(execution_dir)
+    exec_path.mkdir(parents=True, exist_ok=True)
+
+    logger.debug(f"Isolating workflow: symlinking {source_path} -> {exec_path}")
+    
+    for item in source_path.iterdir():
+        if item.name == ".snakemake":
+            continue
+        
+        target = exec_path / item.name
+        if not target.exists():
+            try:
+                # Create a symlink to the original file/directory
+                os.symlink(item.resolve(), target)
+            except Exception as e:
+                logger.error(f"Failed to symlink {item} to {target}: {e}")
+                # Fallback to copy if symlink fails
+                if item.is_dir():
+                    shutil.copytree(item, target, symlinks=True)
+                else:
+                    shutil.copy2(item, target)
+
+
 def extract_response_status(data: Any) -> Optional[str]:
     """
     Extract status from response data, handling both structured models and dictionaries.
