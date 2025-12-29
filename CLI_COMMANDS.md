@@ -27,11 +27,11 @@ swa parse
 ```
 
 This command:
-- Walks through the `snakemake-wrappers` directory
-- Extracts metadata from `meta.yaml` files
-- Generates demo calls for each wrapper
-- Caches the data to `~/.swa/cache/` directory
-- This cache is used by the REST server to provide wrapper information quickly
+- Walks through the `snakemake-wrappers` directory.
+- Extracts metadata from `meta.yaml` files.
+- Generates demo calls for each wrapper.
+- Caches the data to `~/.swa/cache/wrappers/` and `~/.swa/cache/workflows/` directories.
+- This cache is used by the REST server to provide information quickly without re-parsing Snakefiles.
 
 ### `swa rest`
 
@@ -45,14 +45,14 @@ swa rest \
 ```
 
 Options:
-- `--host`: Host to bind to (default: 127.0.0.1)
-- `--port`: Port to bind to (default: 8082)
-- `--log-level`: Logging level (DEBUG, INFO, WARNING, ERROR; default: INFO)
+- `--host`: Host to bind to (default: 127.0.0.1).
+- `--port`: Port to bind to (default: 8082).
+- `--log-level`: Logging level (DEBUG, INFO, WARNING, ERROR; default: INFO).
 
 When running, this server provides:
-- Standard REST API endpoints
-- Interactive OpenAPI documentation at `http://[host]:[port]/docs`
-- All Snakemake functionality as REST API calls
+- Standard REST API endpoints.
+- Interactive OpenAPI documentation at `http://[host]:[port]/docs`.
+- Asynchronous job submission for Snakemake wrappers and workflows.
 
 ### `swa verify`
 

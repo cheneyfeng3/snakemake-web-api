@@ -4,13 +4,11 @@ The Snakemake Web API provides robust endpoints for remotely executing Snakemake
 
 ## Key Features
 
-*   **REST API:** Comprehensive REST endpoints for discovering and executing Snakemake wrappers and workflows.
-*   **`run_snakemake_wrapper` Tool:** Execute individual Snakemake wrappers by name. This is ideal for running specific bioinformatics tools wrapped for Snakemake.
-*   **`run_snakemake_workflow` Tool:** Execute entire Snakemake workflows. This enables running complex, multi-step pipelines remotely.
-*   **Flexible Parameter Passing:** Both tools accept common Snakemake parameters such as `inputs`, `outputs`, `params`, `threads`, `log`, `extra_snakemake_args`, `container`, `benchmark`, `resources`, `shadow`, and `target_rule`.
-*   **Dynamic Config Modification (for Workflows):** The `run_snakemake_workflow` tool can dynamically modify a workflow's `config.yaml` based on parameters provided in the API call, allowing for on-the-fly customization of workflow execution.
-*   **Async Job Processing:** Asynchronous job submission and status checking with support for long-running tasks.
-*   **Conda Environment Management:** Seamless integration with Conda environments, ensuring reproducible and isolated execution environments.
+*   **FastAPI REST API:** High-performance REST endpoints for discovering and executing Snakemake wrappers and workflows, with automatic OpenAPI documentation.
+*   **Asynchronous Job Processing:** Submit long-running tasks and monitor their progress via a standardized job status API.
+*   **Metadata Caching:** Pre-parse Snakemake wrappers and workflows to provide fast access to tool information and executable demos.
+*   **Dynamic Configuration:** Support for on-the-fly modification of workflow `config.yaml` and wrapper parameters.
+*   **Flexible Environment Management:** Seamlessly handles Conda and Container (Singularity) environments.
 
 ## Installation
 
@@ -136,6 +134,77 @@ This script will:
 2. Execute the wrapper via the `/tool-processes` REST API endpoint
 3. Poll the job status until completion
 4. Verify the final job status
+
+## API Endpoints Summary
+
+*   `GET /tools`: List all available Snakemake wrappers.
+*   `GET /workflows`: List all available workflows.
+*   `POST /tool-processes`: Submit an asynchronous wrapper execution job.
+*   `POST /workflow-processes`: Submit an asynchronous workflow execution job.
+*   `GET /tool-processes/{job_id}`: Check the status of a specific job.
+*   `GET /demos/wrappers/{wrapper_id}`: Get executable demo payloads for a specific wrapper.
+*   `GET /demos/workflows/{workflow_id}`: Get executable demo payloads for a specific workflow.
+
+## Discovering and Using Demos
+
+The API automatically generates "Demos" by analyzing the test cases provided in the Snakemake wrapper repository and the `demos/` directory of workflows.
+
+### 1. Get Wrapper Demos
+Discover how to call a specific wrapper with valid test data:
+```bash
+curl http://localhost:8082/demos/wrappers/bio/fastp
+```
+This returns a list of objects containing the `method`, `endpoint`, and a pre-populated `payload` that you can send directly to `/tool-processes`.
+
+### 2. Get Workflow Demos
+See example configurations for a specific workflow:
+```bash
+curl http://localhost:8082/demos/workflows/rna-seq-star-deseq2
+```
+This returns various configuration presets (e.g., "small-test-dataset", "human-genome-config") that can be used in the `config` field of a `/workflow-processes` submission.
+
+## Working with Workflows
+
+The Workflow API allows you to manage and execute complex Snakemake pipelines.
+
+### 1. List Available Workflows
+Retrieve a list of all workflows found in your `snakemake-workflows` directory:
+```bash
+curl http://localhost:8082/workflows
+```
+
+### 2. Get Workflow Metadata
+Get detailed information about a specific workflow, including its default configuration and parameter schema:
+```bash
+curl http://localhost:8082/workflows/my-cool-pipeline
+```
+
+### 3. Submit a Workflow Job
+Execute a workflow by providing its ID and optional configuration overrides. The server performs a **deep merge** of your `config` object into the workflow's base `config.yaml`.
+
+```bash
+curl -X POST http://localhost:8082/workflow-processes \
+     -H "Content-Type: application/json" \
+     -d '{
+           "workflow_id": "rna-seq-star-deseq2",
+           "config": {
+             "samples": "samples.tsv",
+             "params": {
+               "star": "--quantMode GeneCounts"
+             }
+           },
+           "target_rule": "all"
+         }'
+```
+
+The response will include a `job_id` and a `status_url` for polling.
+
+### 4. Monitor Workflow Progress
+Poll the status of your submitted job:
+```bash
+curl http://localhost:8082/workflow-processes/{job_id}
+```
+Status can be `accepted`, `running`, `completed`, or `failed`.
 
 ## Running the Server
 

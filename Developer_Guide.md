@@ -1,71 +1,65 @@
 # Developer Guide
 
-## 架构概述
-   * server.py：CLI 应用程序，定义 `parse`, `rest`, `verify` 三个子命令入口点。
-   * api/main.py：创建原生 FastAPI 应用程序，定义 REST API 路由。
-   * api/routes/：包含不同的 API 路由实现 (health, demo, tools, tool_processes, workflow_processes)。
-   * wrapper_runner.py：执行单个 wrapper 的逻辑（动态 Snakefile 生成）。
-   * workflow_runner.py：执行完整工作流的逻辑（配置修改、Snakemake 命令构建）。
-   * snakefile_parser.py：解析 Snakefile 以生成工具元数据和演示调用。
-   * schemas.py：定义 Pydantic 模式，用于 API 请求和响应。
+## Architecture Overview
 
-## 参数处理和流程
-   * 详细解释 CLI 参数如何传递到 FastAPI 应用程序状态，并进一步传递给 wrapper_runner.py 和 workflow_runner.py。
-   * `run_snakemake_wrapper`：
-       * 生成一个带有单个 run_single_wrapper 规则的临时 Snakefile。
-       * outputs 参数对于目标确定是可选的。
-       * conda_env 参数向生成的 Snakefile 添加 conda: 指令。
-       * shadow 参数添加 shadow: 指令。
-       * 使用 `workdir` 参数指定工作目录，在其中创建临时 Snakefile 和执行命令。
-   * `run_snakemake_workflow`：
-       * 根据 workflow_id 和 workflows_dir 定位工作流。
-       * 加载原始 config.yaml。
-       * 配置合并逻辑： 解释如何将 API 调用中的 inputs、outputs、params 合并到临时 config.yaml 中（例如，params
-         直接更新配置的根，inputs/outputs 作为顶级键添加）。这是一个关键细节，需要清晰的解释和潜在的注意事项。
-       * target_rule 参数用于指定工作流中的特定规则。
-       * 如何将 container、benchmark、resources、shadow 转换为 Snakemake
-         命令行参数（--container-image、--benchmark-file、--resources、--shadow-prefix）。
-   * **异步任务处理**：
-       * 新增 JobStatus、JobSubmissionResponse 模式以支持异步任务处理。
-       * 任务提交后返回 job_id 和 status_url 用于后续状态检查。
-       * 实现了异步任务状态轮询机制。
+The Snakemake Web API is built with a modular architecture centered around FastAPI and the Snakemake Python API.
 
-## CLI 命令结构
-   * `parse`: 解析 snakemake-wrappers 目录中的包装器，生成缓存元数据。
-   * `rest`: 启动 FastAPI REST API 服务器。
-   * `verify`: 验证安装和配置是否正确。
+*   **`server.py`**: The main CLI entry point using Click. It handles command routing for `parse`, `rest`, and `verify`.
+*   **`api/main.py`**: Initializes the FastAPI application, sets up global state (like paths), and includes routers from `api/routes/`.
+*   **`api/routes/`**: Contains specialized routers:
+    *   `health.py`: Simple health check.
+    *   `tools.py` & `workflows.py`: Query metadata from the pre-parsed cache.
+    *   `tool_processes.py` & `workflow_processes.py`: Handle asynchronous job submission and status polling.
+    *   `demos.py`: Serves executable examples derived from wrapper/workflow test cases.
+*   **`wrapper_runner.py`**: Core logic for executing a single wrapper. It dynamically generates a one-rule Snakefile and runs Snakemake in a subprocess.
+*   **`workflow_runner.py`**: Core logic for executing full workflows. It performs a deep merge of configuration overrides and executes the main Snakefile.
+*   **`snakefile_parser.py`**: Uses the Snakemake API to introspect Snakefiles, extracting rule inputs, outputs, and parameters for metadata generation.
+*   **`jobs.py`**: Manages an in-memory `job_store` and provides the background task logic to update job status and results.
+*   **`schemas.py`**: Defines Pydantic models for type safety and automatic API documentation.
 
-## API 路由详解
-   * `health`: 健康检查端点
-   * `demo`: 提供演示调用端点
-   * `tools`: 工具列表和元数据端点
-   * `tool_processes`: 异步 wrapper 执行端点
-   * `workflow_processes`: 异步 workflow 执行端点
+## Core Processes
 
-## 错误处理
-   * runner 模块如何捕获 subprocess.CalledProcessError、subprocess.TimeoutExpired 和通用 Exception。
-   * FastAPI 如何通过 HTTP 异常响应传播错误。
-   * 异步任务如何在任务结果中记录错误信息。
+### Metadata Caching (`swa parse`)
+To ensure high performance, the API does not parse Snakefiles on every request. Instead, the `swa parse` command:
+1.  Recursively scans the `snakemake-wrappers` and `snakemake-workflows` directories.
+2.  Extracts metadata from `meta.yaml` and introspects Snakefiles via `snakefile_parser.py`.
+3.  Serializes the result into JSON files under `~/.swa/cache/`.
+4.  The API routers then load these JSON files into memory or serve them directly.
 
-## 测试策略
-   * conftest.py 和共享 fixture（http_client、test_files、wrappers_path、workflows_dir）的解释。
-   * 为什么 fixture 是 function 作用域以实现隔离。
-   * 如何运行测试用例：
-     1. 首先设置 `SNAKEBASE_DIR` 环境变量，指向包含 `snakemake-wrappers` 和 `snakemake-workflows` 的目录。
-     2. 运行 `swa parse` 以生成元数据缓存。
-     3. 使用 `pytest` 运行测试。
-     
-     ```bash
-     export SNAKEBASE_DIR=/path/to/your/snakebase
-     uv run swa parse
-     uv run pytest
-     ```
-   * 如何为 wrapper 和工作流添加新测试。
-   * SNAKEMAKE_WRAPPERS_PATH 环境变量对测试的重要性。
-   * test_conda_env.py 和 test_shadow_wrapper.py 如何专门测试参数传递和 Snakemake 指令生成。
-   * test_workflow_execution.py 用于验证工作流执行和配置修改。
+### Asynchronous Task Handling
+Snakemake executions can be long-running. The API uses a non-blocking model:
+1.  **Submission**: A `POST` to `/tool-processes` or `/workflow-processes` creates a new `Job` in the `job_store` with an `ACCEPTED` status and returns a `job_id`.
+2.  **Execution**: The runner starts in a FastAPI `BackgroundTasks`. The status transitions to `RUNNING`.
+3.  **Completion**: Upon finishing, the status is updated to `COMPLETED` or `FAILED`, and the `stdout`, `stderr`, and `exit_code` are stored.
+4.  **Polling**: The client polls `GET /tool-processes/{job_id}` to retrieve the final results.
 
-## 未来考虑/已知限制
-   * 当前工作流的配置合并是一种简化（直接更新根 params、inputs、outputs）。对于复杂工作流可能需要更复杂的映射。
-   * shadow 指令与 singularity 的交互（如 FileNotFoundError 中所示）如果是一个常见问题，可能需要注意或进一步调查。
-   * 当前实现依赖于 SNAKEBASE_DIR 环境变量，可能需要更加灵活的配置选项。
+## Configuration Merging (Workflows)
+When running a workflow, the system:
+1.  Locates the workflow's base `config/config.yaml`.
+2.  Performs a **Deep Merge** of the user-provided `config` object from the API request into the base configuration.
+3.  Generates a temporary YAML config file and passes it to Snakemake via `--configfile`.
+
+## Error Handling
+*   **Subprocess Errors**: Captured via `subprocess.CalledProcessError` and returned in the job result's `stderr` and `error_message`.
+*   **API Validation**: Pydantic models automatically validate incoming request bodies, returning 422 Unprocessable Entity for invalid schemas.
+*   **Not Found**: 404 errors are returned if requested wrappers or workflows are not present in the cache.
+
+## Testing Strategy
+
+Tests are managed via `pytest` and use `uv run pytest` for execution.
+
+*   **Fixtures**: `conftest.py` defines shared fixtures for a mock `snakebase` environment and a test FastAPI client.
+*   **Integration Tests**:
+    *   `test_workflow_execution.py`: Verifies full workflow runs and config merging.
+    *   `test_wrapper_runner_directly.py`: Tests the underlying wrapper execution logic without the API layer.
+    *   `test_rest_api_integration.py`: Validates the end-to-end REST flow from submission to polling.
+
+To run tests:
+1.  Set `SNAKEBASE_DIR` to your test data directory.
+2.  Run `uv run swa parse` to ensure the cache is ready.
+3.  Run `uv run pytest`.
+
+## Known Limitations
+*   **In-Memory Job Store**: Job status is lost if the server restarts. A future improvement could involve a persistent database (e.g., SQLite).
+*   **Conda Latency**: The first run of a wrapper/workflow may be slow due to Conda environment creation.
+*   **Pathing**: The system currently assumes local filesystem access to the `SNAKEBASE_DIR`.
