@@ -29,8 +29,8 @@ def setup_test_environment():
         wrappers_dir.mkdir(parents=True)
         
         # Create a dummy test workflow
-        workflow_name = "api_test_workflow"
-        workflow_path = workflows_dir / workflow_name
+        workflow_id = "api_test_workflow"
+        workflow_path = workflows_dir / workflow_id
         workflow_path.mkdir(parents=True)
 
         # 1. Create workflow/Snakefile
@@ -123,7 +123,7 @@ def test_list_workflows(api_client):
 
 
 def test_get_workflow_meta(api_client):
-    """Test the GET /workflows/{workflow_name:path} endpoint."""
+    """Test the GET /workflows/{workflow_id:path} endpoint."""
     response = api_client.get("/workflows/api_test_workflow")
     assert response.status_code == 200
     data = response.json()
@@ -134,8 +134,8 @@ def test_get_workflow_meta(api_client):
 
 
 def test_get_workflow_demos(api_client):
-    """Test the GET /workflows/demos/{workflow_id:path} endpoint."""
-    response = api_client.get("/workflows/demos/api_test_workflow")
+    """Test the GET /demos/workflows/{workflow_id:path} endpoint."""
+    response = api_client.get("/demos/workflows/api_test_workflow")
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)

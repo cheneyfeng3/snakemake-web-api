@@ -18,7 +18,7 @@
        * shadow 参数添加 shadow: 指令。
        * 使用 `workdir` 参数指定工作目录，在其中创建临时 Snakefile 和执行命令。
    * `run_snakemake_workflow`：
-       * 根据 workflow_name 和 workflows_dir 定位工作流。
+       * 根据 workflow_id 和 workflows_dir 定位工作流。
        * 加载原始 config.yaml。
        * 配置合并逻辑： 解释如何将 API 调用中的 inputs、outputs、params 合并到临时 config.yaml 中（例如，params
          直接更新配置的根，inputs/outputs 作为顶级键添加）。这是一个关键细节，需要清晰的解释和潜在的注意事项。

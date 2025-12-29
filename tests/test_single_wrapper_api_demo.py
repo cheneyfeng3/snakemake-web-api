@@ -40,7 +40,7 @@ async def test_single_demo_api_flow(rest_client):
     logging.info(f"Received metadata for {wrapper_path}: {metadata.get('id')}")
     
     # Fetch demos from the separate endpoint
-    demos_response = rest_client.get(f"/demos/{wrapper_path}")
+    demos_response = rest_client.get(f"/demos/wrappers/{wrapper_path}")
     assert demos_response.status_code == 200, f"Failed to get demos for {wrapper_path}"
     
     demos = demos_response.json()

@@ -1,10 +1,9 @@
 import logging
-import os
 import json
 from pathlib import Path
 from typing import List
 from fastapi import APIRouter, HTTPException, Request
-from ...schemas import WorkflowMetaResponse, WorkflowDemo
+from ...schemas import WorkflowMetaResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,18 +53,9 @@ async def list_workflows(request: Request):
     cached_workflows = get_all_cached_workflows()
     return [WorkflowMetaResponse(**wf) for wf in cached_workflows]
 
-@router.get("/workflows/demos/{workflow_id:path}", response_model=List[WorkflowDemo], operation_id="get_workflow_demos")
-async def get_workflow_demos(workflow_id: str, request: Request):
-    """
-    Get demos for a specific workflow from the pre-parsed cache.
-    """
-    metadata = load_workflow_metadata(workflow_id)
-    demos = metadata.get('demos', [])
-    return [WorkflowDemo(**demo) for demo in demos]
-
-@router.get("/workflows/{workflow_name:path}", response_model=WorkflowMetaResponse, operation_id="get_workflow_meta")
-async def get_workflow_meta(workflow_name: str, request: Request):
+@router.get("/workflows/{workflow_id:path}", response_model=WorkflowMetaResponse, operation_id="get_workflow_meta")
+async def get_workflow_meta(workflow_id: str, request: Request):
     """
     Get full metadata for a specific workflow from the cache.
     """
-    return WorkflowMetaResponse(**load_workflow_metadata(workflow_name))
+    return WorkflowMetaResponse(**load_workflow_metadata(workflow_id))

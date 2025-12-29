@@ -203,7 +203,7 @@ def verify(ctx, log_level, dry_run, by_api, fast_fail, force, no_cache, include)
                 try:
                     payload = demo.payload
                     result = asyncio.run(run_demo(
-                        wrapper_name=payload.wrapper_id,
+                        wrapper_id=payload.wrapper_id,
                         inputs=payload.inputs,
                         outputs=payload.outputs,
                         params=payload.params,

@@ -20,7 +20,7 @@ async def run_workflow_in_background(job_id: str, request: UserWorkflowRequest, 
     def sync_task():
         # This is the synchronous function that executes the subprocess
         return run_workflow(
-            workflow_name=request.workflow_id,
+            workflow_id=request.workflow_id,
             workflows_dir=workflows_dir,
             config_overrides=request.config,
             target_rule=request.target_rule,

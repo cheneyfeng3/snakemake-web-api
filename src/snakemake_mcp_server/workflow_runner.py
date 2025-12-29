@@ -21,7 +21,7 @@ def deep_merge(source, destination):
     return destination
 
 def run_workflow(
-    workflow_name: str,
+    workflow_id: str,
     workflows_dir: str,
     config_overrides: dict,
     target_rule: Optional[str] = None,
@@ -33,11 +33,11 @@ def run_workflow(
     """
     temp_config_path = None
     try:
-        if not workflow_name or not isinstance(workflow_name, str):
-            raise ValueError("workflow_name must be a non-empty string")
+        if not workflow_id or not isinstance(workflow_id, str):
+            raise ValueError("workflow_id must be a non-empty string")
 
         workflow_base_path = Path(workflows_dir)
-        workflow_path = workflow_base_path / workflow_name
+        workflow_path = workflow_base_path / workflow_id
         if not workflow_path.exists():
             raise FileNotFoundError(f"Workflow not found at: {workflow_path}")
         

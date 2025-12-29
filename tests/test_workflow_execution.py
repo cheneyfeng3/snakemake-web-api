@@ -13,8 +13,8 @@ def dummy_workflow_setup():
     temp_snakebase = tempfile.mkdtemp()
     workflows_dir = Path(temp_snakebase) / "snakemake-workflows"
     
-    workflow_name = "dummy_test_workflow"
-    dummy_workflow_path = workflows_dir / workflow_name
+    workflow_id = "dummy_test_workflow"
+    dummy_workflow_path = workflows_dir / workflow_id
     dummy_workflow_path.mkdir(parents=True, exist_ok=True)
 
     # Create workflow/Snakefile
@@ -47,7 +47,7 @@ rule create_output:
     (dummy_workflow_path / "results").mkdir(exist_ok=True)
 
     yield {
-        "workflow_name": workflow_name,
+        "workflow_id": workflow_id,
         "workflow_path": str(dummy_workflow_path),
         "output_file": "results/output.txt",
         "workflows_dir": str(workflows_dir),
@@ -61,7 +61,7 @@ def test_run_snakemake_workflow_basic(dummy_workflow_setup):
     output_file_path = Path(dummy_workflow_setup["workflow_path"]) / dummy_workflow_setup["output_file"]
 
     result = run_workflow(
-        workflow_name=dummy_workflow_setup["workflow_name"],
+        workflow_id=dummy_workflow_setup["workflow_id"],
         workflows_dir=dummy_workflow_setup["workflows_dir"],
         config_overrides={},  # No overrides
         target_rule=dummy_workflow_setup["output_file"],
@@ -79,7 +79,7 @@ def test_run_snakemake_workflow_with_config_override(dummy_workflow_setup):
     new_message = "hello from override"
 
     result = run_workflow(
-        workflow_name=dummy_workflow_setup["workflow_name"],
+        workflow_id=dummy_workflow_setup["workflow_id"],
         workflows_dir=dummy_workflow_setup["workflows_dir"],
         config_overrides={"message": new_message},  # Override message
         target_rule=dummy_workflow_setup["output_file"],

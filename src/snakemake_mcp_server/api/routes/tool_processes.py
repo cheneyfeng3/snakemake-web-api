@@ -27,7 +27,7 @@ async def tool_process_endpoint(request: UserWrapperRequest, background_tasks: B
     logger.info(f"Received request for tool: {request.wrapper_id}")
     
     if not request.wrapper_id:
-        raise HTTPException(status_code=400, detail="'wrapper_name' must be provided for tool execution.")
+        raise HTTPException(status_code=400, detail="'wrapper_id' must be provided for tool execution.")
 
     # 1. Load WrapperMetadata to infer hidden parameters
     wrapper_metadata_list = load_wrapper_metadata(http_request.app.state.wrappers_path)

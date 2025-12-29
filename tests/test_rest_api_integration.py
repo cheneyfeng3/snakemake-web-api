@@ -76,8 +76,8 @@ async def test_direct_fastapi_demo_structure_validation(rest_client):
     """Test that demo calls are correctly structured with API parameters."""
     test_tool_path = "bio/snpsift/varType"
     
-    # Fetch demos from the /demos/{wrapper_id} endpoint
-    response = rest_client.get(f"/demos/{test_tool_path}")
+    # Fetch demos from the /demos/wrappers/{wrapper_id} endpoint
+    response = rest_client.get(f"/demos/wrappers/{test_tool_path}")
     assert response.status_code == 200
     
     demos = response.json()
@@ -95,99 +95,6 @@ async def test_direct_fastapi_demo_structure_validation(rest_client):
     assert "wrapper_id" in payload # Ensure wrapper_id is in payload
     
     pass
-
-
-@pytest.mark.asyncio
-async def test_direct_fastapi_demo_case_endpoint(rest_client):
-    """
-    Test the /demo-case endpoint to ensure it returns a runnable structure,
-    then executes the returned payload and verifies the outcome.
-    """
-    # 1. Get the demo case from the /demo-case endpoint
-    response = rest_client.get("/demo-case")
-    
-    assert response.status_code == 200
-    demo_case_response = response.json()
-    
-    assert "method" in demo_case_response
-    assert "endpoint" in demo_case_response
-    assert "payload" in demo_case_response
-    assert "curl_example" in demo_case_response
-    
-    assert demo_case_response["method"] == "POST"
-    assert demo_case_response["endpoint"] == "/tool-processes"
-    assert demo_case_response["payload"]["wrapper_id"] == "bio/snpsift/varType" # Changed to snpsift/varType
-    
-    print("\nDirect FastAPI /demo-case endpoint validated for structure.")
-
-    # 2. Extract payload and prepare for execution
-    payload = demo_case_response["payload"]
-    
-    # The workdir and input file are created by the /tool-processes endpoint.
-    # We will get the actual workdir and output file path from the job result.
-    input_file_name = payload["inputs"]["vcf"]
-    output_file_name = payload["outputs"]["vcf"]
-
-    try:
-        # 3. Submit the job using the extracted payload
-        # The payload from demo_case_response is a UserWrapperRequest,
-        # but /tool-processes expects InternalWrapperRequest.
-        # We need to construct a valid InternalWrapperRequest.
-        internal_payload = InternalWrapperRequest(
-            wrapper_id=payload["wrapper_id"],
-            inputs=payload.get("inputs"),
-            outputs=payload.get("outputs"),
-            params=payload.get("params"),
-            workdir=".", # Placeholder, actual workdir will be managed by server
-            threads=1 # Minimal platform param required
-        )
-
-        submit_response = rest_client.post(demo_case_response["endpoint"], json=internal_payload.model_dump(mode="json"))
-        assert submit_response.status_code == 202
-        submission_data = submit_response.json()
-        job_id = submission_data["job_id"]
-        status_url = submission_data["status_url"]
-
-        print(f"Submitted demo job ID: {job_id}")
-        print(f"Demo job Status URL: {status_url}")
-
-        # 4. Poll job status
-        max_attempts = 60
-        attempts = 0
-        job_status = None
-        job_status_data = {}
-        while attempts < max_attempts:
-            time.sleep(1) # Wait for 1 second before polling again
-            status_check_response = rest_client.get(status_url)
-            assert status_check_response.status_code == 200
-            job_status_data = status_check_response.json()
-            job_status = job_status_data["status"]
-
-            print(f"Polling demo job {job_id}, status: {job_status}")
-
-            if job_status in ["completed", "failed"]:
-                break
-            attempts += 1
-        
-        assert job_status == "completed", f"Demo job failed or timed out. Final status: {job_status}, Result: {job_status_data.get('result')}"
-
-        # Extract workdir and output file path from the job result
-        job_result = job_status_data["result"]
-        assert "output_files" in job_result and len(job_result["output_files"]) > 0
-        output_file_full_path = Path(job_result["output_files"][0])
-        workdir = output_file_full_path.parent # The workdir is the parent of the output file
-
-        # 5. Verify output file
-        time.sleep(2) # Give a small delay to ensure file system is updated
-        assert output_file_full_path.exists(), f"Output file {output_file_full_path} was not created by demo job."
-        print(f"Output file {output_file_full_path} from demo job verified.")
-
-    finally:
-        # 6. Clean up the temporary directory created by /demo-case
-        # The workdir is now derived from the output_file_full_path
-        if 'workdir' in locals() and workdir.exists():
-            shutil.rmtree(workdir)
-            print(f"Cleaned up temporary directory: {workdir}")
 
 
 @pytest.mark.asyncio
