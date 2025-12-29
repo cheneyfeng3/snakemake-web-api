@@ -43,8 +43,8 @@ def setup_demo_workdir(demo_workdir: str, workdir: str):
 def prepare_isolated_workdir(source_dir: str, execution_dir: str):
     """
     Symlinks all top-level files and directories from source_dir to execution_dir,
-    excluding the .snakemake directory. This creates an isolated environment 
-    for Snakemake execution.
+    excluding .snakemake and .git directories. This creates an isolated environment 
+    for Snakemake execution and avoids interference with source tracking.
     """
     source_path = Path(source_dir)
     exec_path = Path(execution_dir)
@@ -53,7 +53,8 @@ def prepare_isolated_workdir(source_dir: str, execution_dir: str):
     logger.debug(f"Isolating workflow: symlinking {source_path} -> {exec_path}")
     
     for item in source_path.iterdir():
-        if item.name == ".snakemake":
+        # Exclude internal Snakemake data and Git metadata to avoid conflicts and archiving bugs
+        if item.name in [".snakemake", ".git"]:
             continue
         
         target = exec_path / item.name
