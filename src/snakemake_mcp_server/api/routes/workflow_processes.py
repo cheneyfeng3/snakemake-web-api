@@ -24,6 +24,8 @@ async def run_workflow_in_background(job_id: str, request: UserWorkflowRequest, 
             workflows_dir=workflows_dir,
             config_overrides=request.config,
             target_rule=request.target_rule,
+            cores=request.cores,
+            use_conda=request.use_conda,
         )
 
     async def async_task():

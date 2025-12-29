@@ -25,6 +25,8 @@ def run_workflow(
     workflows_dir: str,
     config_overrides: dict,
     target_rule: Optional[str] = None,
+    cores: Union[int, str] = "all",
+    use_conda: bool = True,
     timeout: int = 3600,
 ) -> Dict:
     """
@@ -73,13 +75,13 @@ def run_workflow(
             "snakemake", 
             "--snakefile", str(main_snakefile),
             "--configfile", str(temp_config_path),
-            "--cores", "1",
-            "--use-conda",
+            "--cores", str(cores),
             "--nocolor",
             "--printshellcmds",
-            # All execution parameters like --cores, --resources must now be
-            # handled by the workflow itself, using the config object.
         ]
+
+        if use_conda:
+            command.append("--use-conda")
         
         if target_rule:
             command.append(target_rule)

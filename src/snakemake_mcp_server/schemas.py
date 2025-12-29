@@ -62,6 +62,8 @@ class UserWorkflowRequest(BaseModel):
     workflow_id: str
     config: dict = Field(default_factory=dict)
     target_rule: Optional[str] = None
+    cores: Optional[Union[int, str]] = "all"
+    use_conda: bool = True
 
 
 class SnakemakeResponse(BaseModel):
