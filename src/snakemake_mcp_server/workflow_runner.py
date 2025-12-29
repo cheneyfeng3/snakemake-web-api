@@ -33,8 +33,10 @@ async def run_workflow(
     """
     Executes a Snakemake workflow by merging a config object with the base
     config.yaml and running Snakemake via asyncio.create_subprocess_exec.
+    Outputs are redirected to a log file for real-time access.
     """
     temp_config_path = None
+    log_file_path = None
     try:
         if not workflow_id or not isinstance(workflow_id, str):
             raise ValueError("workflow_id must be a non-empty string")
@@ -71,6 +73,15 @@ async def run_workflow(
         
         logger.debug(f"Generated temporary config for run: {temp_config_path}")
 
+        # Setup real-time logging to file
+        if job_id:
+            log_dir = Path.home() / ".swa" / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file_path = log_dir / f"{job_id}.log"
+            log_file = open(log_file_path, 'w')
+        else:
+            log_file = None
+
         # Build a simple, robust Snakemake command
         command = [
             "snakemake", 
@@ -91,8 +102,8 @@ async def run_workflow(
         
         process = await asyncio.create_subprocess_exec(
             *command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=log_file if log_file else asyncio.subprocess.PIPE,
+            stderr=log_file if log_file else asyncio.subprocess.PIPE,
             cwd=workflow_path
         )
 
@@ -102,14 +113,22 @@ async def run_workflow(
             active_processes[job_id] = process
 
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=timeout)
+            if log_file:
+                # If logging to file, we just wait for the process to exit
+                await asyncio.wait_for(process.wait(), timeout=timeout)
+                stdout = f"Logs redirected to {log_file_path}"
+                stderr = ""
+            else:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=timeout)
+                stdout = stdout_bytes.decode()
+                stderr = stderr_bytes.decode()
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
             return {"status": "failed", "stdout": "", "stderr": f"Execution timed out after {timeout} seconds.", "exit_code": -1, "error_message": "Timeout expired"}
-
-        stdout = stdout_bytes.decode()
-        stderr = stderr_bytes.decode()
+        finally:
+            if log_file:
+                log_file.close()
 
         if process.returncode == 0:
             return {

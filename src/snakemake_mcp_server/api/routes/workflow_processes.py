@@ -1,8 +1,11 @@
 import logging
 import uuid
 import asyncio
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status, Request
+from fastapi.responses import FileResponse
 from ...workflow_runner import run_workflow
 from ...schemas import UserWorkflowRequest, Job, JobList, JobStatus, JobSubmissionResponse
 from ...jobs import job_store, run_and_update_job, active_processes
@@ -45,7 +48,13 @@ async def create_workflow_process(
     logger.info(f"Received request to run workflow: {request.workflow_id}")
 
     job_id = str(uuid.uuid4())
-    job = Job(job_id=job_id, status=JobStatus.ACCEPTED, created_time=datetime.now(timezone.utc))
+    log_url = f"/workflow-processes/{job_id}/log"
+    job = Job(
+        job_id=job_id, 
+        status=JobStatus.ACCEPTED, 
+        created_time=datetime.now(timezone.utc),
+        log_url=log_url
+    )
     job_store[job_id] = job
 
     background_tasks.add_task(
@@ -57,7 +66,7 @@ async def create_workflow_process(
     
     status_url = f"/workflow-processes/{job_id}"
     response.headers["Location"] = status_url
-    return JobSubmissionResponse(job_id=job_id, status_url=status_url)
+    return JobSubmissionResponse(job_id=job_id, status_url=status_url, log_url=log_url)
 
 
 @router.get("/workflow-processes/{job_id}", response_model=Job, operation_id="get_workflow_process_status")
@@ -69,6 +78,21 @@ async def get_workflow_process_status(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+
+@router.get("/workflow-processes/{job_id}/log", operation_id="get_workflow_process_log")
+async def get_workflow_process_log(job_id: str):
+    """
+    Get the real-time log of a running Snakemake workflow process.
+    """
+    log_path = Path.home() / ".swa" / "logs" / f"{job_id}.log"
+    if not log_path.exists():
+        # Check if job exists
+        if job_id not in job_store:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return Response(content="Log file not yet created.", media_type="text/plain")
+    
+    return FileResponse(log_path, media_type="text/plain")
 
 
 @router.delete("/workflow-processes/{job_id}", operation_id="cancel_workflow_process")

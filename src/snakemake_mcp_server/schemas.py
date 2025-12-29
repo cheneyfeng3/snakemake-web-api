@@ -16,6 +16,7 @@ class Job(BaseModel):
     status: JobStatus
     created_time: datetime
     result: Optional[Dict] = None
+    log_url: Optional[str] = None
 
 
 class JobList(BaseModel):
@@ -25,6 +26,7 @@ class JobList(BaseModel):
 class JobSubmissionResponse(BaseModel):
     job_id: str
     status_url: str
+    log_url: Optional[str] = None
 
 
 # UserProvidedParams 用于请求和元数据存储（统一使用 inputs/outputs）

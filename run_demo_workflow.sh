@@ -3,7 +3,7 @@ set -e # Exit on error
 unset http_proxy https_proxy # Bypass proxy for localhost connections
 
 # This script executes a Snakemake workflow via the /workflow-processes REST API endpoint
-# using a curl command, polls its status, and verifies successful execution.
+# using a contractor command, polls its status, and verifies successful execution.
 # It dynamically fetches the demo case from the /demos/workflows/{workflow_id} endpoint.
 #
 # Usage: ./run_demo_workflow.sh [workflow_id]
@@ -61,11 +61,13 @@ echo "Response from /workflow-processes (Job Submission):"
 echo "$CURL_OUTPUT" | jq .
 echo ""
 
-# --- Step 3: Extract job_id and status_url from the response ---
-echo "--- Step 3: Extracting job_id and status_url ---"
+# --- Step 3: Extract job_id, status_url and log_url from the response ---
+echo "--- Step 3: Extracting job_id, status_url and log_url ---"
 JOB_ID=$(echo "$CURL_OUTPUT" | jq -r '.job_id')
 STATUS_URL_RELATIVE=$(echo "$CURL_OUTPUT" | jq -r '.status_url')
+LOG_URL_RELATIVE=$(echo "$CURL_OUTPUT" | jq -r '.log_url')
 STATUS_URL="$API_SERVER_URL$STATUS_URL_RELATIVE"
+LOG_URL="$API_SERVER_URL$LOG_URL_RELATIVE"
 
 if [ -z "$JOB_ID" ] || [ "$JOB_ID" == "null" ]; then
     echo "Error: Failed to get JOB_ID from response."
@@ -75,6 +77,7 @@ fi
 
 echo "Job ID: $JOB_ID"
 echo "Status URL: $STATUS_URL"
+echo "Log URL: $LOG_URL"
 echo ""
 
 # --- Step 4: Poll the status_url to monitor job progress ---
@@ -84,6 +87,7 @@ ATTEMPT=0
 
 while [ "$JOB_STATUS" != "completed" ] && [ "$JOB_STATUS" != "failed" ] && [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; do
     echo "Polling job status... Attempt $((ATTEMPT+1)) of $MAX_ATTEMPTS"
+    echo "You can view real-time logs at: $LOG_URL"
     sleep 5 # Poll every 5 seconds for workflows
     JOB_RESPONSE=$(curl -s "$STATUS_URL")
     JOB_STATUS=$(echo "$JOB_RESPONSE" | jq -r '.status')
