@@ -35,24 +35,42 @@ This command:
 
 ### `swa rest`
 
-Starts the Snakemake server with native FastAPI REST endpoints. This provides standard REST API endpoints with full OpenAPI documentation.
+Manage the Snakemake REST API server. This command is now a group with several subcommands.
 
-```bash
-swa rest \
-    --host 127.0.0.1 \
-    --port 8082 \
-    --log-level INFO
-```
-
-Options:
+**Common Options for `rest` group and subcommands:**
 - `--host`: Host to bind to (default: 127.0.0.1).
 - `--port`: Port to bind to (default: 8082).
 - `--log-level`: Logging level (DEBUG, INFO, WARNING, ERROR; default: INFO).
+- `--workflow-profile`: Default Snakemake profile to use for all workflows (e.g., 'k3s-s3').
+- `--prefill`: Enable automatic data pre-provisioning to S3 for remote profiles (K8s/S3 mode).
 
-When running, this server provides:
-- Standard REST API endpoints.
-- Interactive OpenAPI documentation at `http://[host]:[port]/docs`.
-- Asynchronous job submission for Snakemake wrappers and workflows.
+**Subcommands:**
+
+#### `swa rest run`
+Starts the server in the foreground (blocking mode). This is the default action if no subcommand is specified.
+```bash
+swa rest run --port 8082
+```
+
+#### `swa rest start`
+Starts the server in the background as a daemon. 
+- PID is stored in `~/.swa/rest.pid`.
+- Logs are redirected to `~/.swa/logs/server.log`.
+```bash
+swa rest start --workflow-profile k3s-s3 --prefill
+```
+
+#### `swa rest stop`
+Stops the background server process.
+```bash
+swa rest stop
+```
+
+#### `swa rest status`
+Checks if the background server is currently running and displays its PID.
+```bash
+swa rest status
+```
 
 ### `swa verify`
 

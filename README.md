@@ -190,16 +190,74 @@ curl -X POST http://localhost:8082/workflow-processes \
            "config": {
              "samples": "samples.tsv",
              "params": {
-               "star": "--quantMode GeneCounts"
+               "star": { "index": "", "align": "" }
              }
            },
            "target_rule": "all"
          }'
 ```
 
-The response will include a `job_id` and a `status_url` for polling.
+### 4. Kubernetes & S3 Execution (Best Practices)
 
-### 4. Monitor Workflow Progress
+When running workflows in a distributed K8s + S3 environment, keep the following in mind:
+
+*   **Data Pre-provisioning**: If your server is started with the `--prefill` flag and a K8s profile, SWA will automatically sync your local isolated workdir (including symlinked input data) to S3 before execution.
+*   **Workflow Localization**: Always use **complete, localized workflow code**. Avoid using remote `include` directives (e.g., URLs pointing to GitHub) in your Snakefiles. Snakemake's Kubernetes executor may fail with a `TypeError` when attempting to archive remote source files for Pod distribution. Ensure all `.smk` rules are present within the workflow directory.
+*   **Dynamic Prefixing**: SWA automatically generates unique S3 prefixes based on the `job_id` to prevent data collisions between concurrent runs.
+
+### 5. Configuring Snakemake Profiles
+
+Profiles allow you to define execution strategies (like Kubernetes, SLURM, or local) and storage settings in a reusable way.
+
+#### Profile Search Priority
+SWA looks for the profile specified by `--workflow-profile` in the following order:
+1.  **Workflow-specific**: `{workflow_dir}/workflow/profiles/{profile_name}/`
+2.  **Global SWA**: `~/.swa/profiles/{profile_name}/` (Recommended for sharing K8s config across workflows)
+3.  **System Default**: Snakemake's standard paths (e.g., `~/.config/snakemake/`)
+
+#### Demo Profile: `k3s-s3`
+To run workflows on Kubernetes with S3 storage, create a directory `~/.swa/profiles/k3s-s3/` and add a `config.yaml` file:
+
+```yaml
+# ~/.swa/profiles/k3s-s3/config.yaml
+# 1. 使用 K3s (Kubernetes) 执行器
+executor: kubernetes
+
+# 2. 设置默认的 S3 存储提供商
+default-storage-provider: s3
+default-storage-prefix: s3://xxxx/
+
+# 3. 将 S3/MinIO 凭证和服务器地址注入到 K3s Pods 中
+#    Snakemake 会从您当前的 shell 环境中读取这些变量
+envvars:
+  - AWS_ACCESS_KEY_ID
+  - AWS_SECRET_ACCESS_KEY
+  - AWS_ENDPOINT_URL
+
+# 4. 设置默认作业数
+jobs: 100
+latency-wait: 60
+
+# 5. 使用 Conda 环境
+use-conda: true
+conda-frontend: mamba
+
+# 6. 其他配置
+rerun-incomplete: true
+rerun-triggers: mtime
+show-failed-logs: true
+printshellcmds: true
+keep-going: false
+
+# 7. Kubernetes Pod 配置
+# 指定 Pod 使用的容器镜像（需要包含 conda/mamba 和基础工具）
+container-image: snakemake/snakemake:v9.11.2
+
+storage-s3-endpoint-url: http://<s3-endpoint-ip>:20480
+storage-s3-max-requests-per-second: 100
+```
+
+### 6. Monitor Workflow Progress
 Poll the status of your submitted job:
 ```bash
 curl http://localhost:8082/workflow-processes/{job_id}
