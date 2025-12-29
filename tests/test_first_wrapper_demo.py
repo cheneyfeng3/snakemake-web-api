@@ -18,8 +18,8 @@ def ensure_parser_cache_exists(wrappers_path_str: str):
     """
     Ensure the parser cache exists by running the parse command if needed.
     """
-    # The cache is stored in ~/.swa/parser, not in the wrappers directory itself
-    cache_dir = Path.home() / ".swa" / "parser"
+    # The cache is stored in ~/.swa/cache/wrappers
+    cache_dir = Path.home() / ".swa" / "cache" / "wrappers"
     if not cache_dir.exists():
         logging.info(f"Parser cache directory not found at '{cache_dir}'. Running 'swa parse' command...")
         
@@ -63,7 +63,7 @@ def load_cached_wrapper_data(wrappers_dir: str) -> list[tuple[WrapperMetadata, l
         logging.warning(f"Could not generate parser cache directory. No tools will be loaded.")
         return []
 
-    cache_dir = Path.home() / ".swa" / "parser"
+    cache_dir = Path.home() / ".swa" / "cache" / "wrappers"
     if not cache_dir.exists():
         logging.warning(f"Parser cache directory still not found at '{cache_dir}'. No tools will be loaded.")
         return []

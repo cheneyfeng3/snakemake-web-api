@@ -8,7 +8,11 @@ from snakemake_mcp_server.schemas import UserWrapperRequest
 @pytest.fixture
 def rest_client():
     """Create a TestClient for the FastAPI application."""
-    app = create_native_fastapi_app("./snakebase/snakemake-wrappers", "./snakebase/snakemake-workflows")
+    snakebase_dir = Path("/root/snakemake-mcp-server/snakebase").resolve()
+    wrappers_path = str(snakebase_dir / "snakemake-wrappers")
+    workflows_dir = str(snakebase_dir / "snakemake-workflows")
+    
+    app = create_native_fastapi_app(wrappers_path, workflows_dir)
     return TestClient(app)
 
 def test_list_jobs_empty(rest_client: TestClient):

@@ -68,7 +68,7 @@ async def test_samtools_faidx_self_contained(self_contained_faidx_data, run_wrap
     shutil.copy2(input_file, input_path)
 
     result = await wrapper_runner(
-        wrapper_name="bio/samtools/faidx",
+        wrapper_id="bio/samtools/faidx",
         inputs=[input_filename],
         outputs=[output_path]
     )
