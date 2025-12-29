@@ -1,48 +1,88 @@
 import logging
+import uuid
 import asyncio
-from fastapi import APIRouter, HTTPException, Request
+from datetime import datetime, timezone
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status, Request
 from ...workflow_runner import run_workflow
-from ...schemas import InternalWorkflowRequest, SnakemakeResponse
+from ...schemas import UserWorkflowRequest, Job, JobList, JobStatus, JobSubmissionResponse
+from ...jobs import job_store, run_and_update_job
 
-router = APIRouter()
 logger = logging.getLogger(__name__)
+router = APIRouter()
 
-@router.post("/workflow-processes", response_model=SnakemakeResponse, operation_id="workflow_process")
-async def workflow_process_endpoint(request: InternalWorkflowRequest, http_request: Request):
+async def run_workflow_in_background(job_id: str, request: UserWorkflowRequest, workflows_dir: str):
     """
-    Process a Snakemake workflow by name and returns the result.
+    A wrapper function to run the synchronous 'run_workflow' function in the background
+    and update the job store with the result.
     """
-    logger.info(f"Received request for workflow: {request.workflow_id}")
+    loop = asyncio.get_event_loop()
 
-    if not request.workflow_id:
-        raise HTTPException(status_code=400, detail="'workflow_id' must be provided for workflow execution.")
-
-    logger.info(f"Processing workflow request: {request.workflow_id}")
-
-    try:
-        result = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: run_workflow(
-                workflow_name=request.workflow_id,
-                inputs=request.inputs,
-                outputs=request.outputs,
-                params=request.params,
-                threads=request.threads,
-                log=request.log,
-                extra_snakemake_args=request.extra_snakemake_args,
-                workflows_dir=http_request.app.state.workflows_dir,
-                container=request.container,
-                benchmark=request.benchmark,
-                resources=request.resources,
-                shadow=request.shadow,
-                target_rule=request.target_rule,
-                timeout=600
-            )
+    def sync_task():
+        # This is the synchronous function that executes the subprocess
+        return run_workflow(
+            workflow_name=request.workflow_id,
+            workflows_dir=workflows_dir,
+            config_overrides=request.config,
+            target_rule=request.target_rule,
         )
 
-        logger.info(f"Workflow execution completed with status: {result['status']}")
-        return result
+    async def async_task():
+        # Run the synchronous task in an executor to avoid blocking the event loop
+        return await loop.run_in_executor(None, sync_task)
 
-    except Exception as e:
-        logger.error(f"Error executing workflow '{request.workflow_name}': {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    # run_and_update_job expects an awaitable, so we pass it the async wrapper
+    await run_and_update_job(job_id, async_task)
+
+
+@router.post(
+    "/workflow-processes",
+    response_model=JobSubmissionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="create_workflow_process"
+)
+async def create_workflow_process(
+    request: UserWorkflowRequest,
+    background_tasks: BackgroundTasks,
+    response: Response,
+    http_request: Request
+):
+    """
+    Submit a Snakemake workflow for asynchronous execution.
+    """
+    logger.info(f"Received request to run workflow: {request.workflow_id}")
+
+    job_id = str(uuid.uuid4())
+    job = Job(job_id=job_id, status=JobStatus.ACCEPTED, created_time=datetime.now(timezone.utc))
+    job_store[job_id] = job
+
+    background_tasks.add_task(
+        run_workflow_in_background,
+        job_id,
+        request,
+        http_request.app.state.workflows_dir
+    )
+    
+    status_url = f"/workflow-processes/{job_id}"
+    response.headers["Location"] = status_url
+    return JobSubmissionResponse(job_id=job_id, status_url=status_url)
+
+
+@router.get("/workflow-processes/{job_id}", response_model=Job, operation_id="get_workflow_process_status")
+async def get_workflow_process_status(job_id: str):
+    """
+    Get the status of a submitted Snakemake workflow job.
+    """
+    job = job_store.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@router.get("/workflow-processes", response_model=JobList, operation_id="get_all_workflow_processes")
+async def get_all_workflow_processes():
+    """
+    Get a list of all submitted Snakemake workflow jobs.
+    """
+    jobs = list(job_store.values())
+    total_count = len(jobs)
+    return JobList(jobs=jobs, total_count=total_count)

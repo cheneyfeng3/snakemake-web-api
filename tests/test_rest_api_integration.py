@@ -18,20 +18,6 @@ def rest_client():
 
 
 @pytest.mark.asyncio
-async def test_direct_fastapi_workflow_execution(rest_client):
-    """Test direct FastAPI workflow execution."""
-    # Test workflow execution using direct FastAPI access
-    response = rest_client.post("/workflow-processes", json={
-        "workflow_name": "hello",
-        "inputs": {"name": "test"},
-        "outputs": ["hello.txt"],
-        "params": {"greeting": "Hello"}
-    })
-    
-    assert response.status_code in [200, 202, 422]  # 422 is expected if files don't exist
-
-
-@pytest.mark.asyncio
 async def test_direct_fastapi_wrapper_execution(rest_client):
     """Test direct FastAPI wrapper execution."""
     # Test wrapper execution using direct FastAPI access

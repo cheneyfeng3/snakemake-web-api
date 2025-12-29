@@ -9,20 +9,17 @@ import yaml
 @pytest.fixture(scope="function")
 def dummy_workflow_setup():
     """Sets up a dummy Snakemake workflow for testing."""
-    # Get the workflows directory
-    workflows_dir = os.path.expanduser(os.environ.get("SNAKEBASE_DIR", "~/snakebase")) + "/snakemake-workflows"
-    if not os.path.exists(workflows_dir):
-        workflows_dir = "./snakebase/snakemake-workflows"
-        
-    # Create a temporary directory for the dummy workflow within workflows_dir
+    # Use a temporary directory for the snakebase to ensure isolation
+    temp_snakebase = tempfile.mkdtemp()
+    workflows_dir = Path(temp_snakebase) / "snakemake-workflows"
+    
     workflow_name = "dummy_test_workflow"
-    dummy_workflow_path = Path(workflows_dir) / workflow_name
+    dummy_workflow_path = workflows_dir / workflow_name
     dummy_workflow_path.mkdir(parents=True, exist_ok=True)
 
     # Create workflow/Snakefile
-    workflow_snakefile_dir = dummy_workflow_path / "workflow"
-    workflow_snakefile_dir.mkdir()
-    workflow_snakefile = workflow_snakefile_dir / "Snakefile"
+    (dummy_workflow_path / "workflow").mkdir()
+    workflow_snakefile = dummy_workflow_path / "workflow" / "Snakefile"
     
     snakefile_content = """
 rule all:
@@ -31,97 +28,65 @@ rule all:
 rule create_output:
     output: "results/output.txt"
     params:
-        message = config["message"]
+        message=config["message"]
+    threads: config.get("threads", 1)
     shell:
         "echo {params.message} > {output}"
 """
     workflow_snakefile.write_text(snakefile_content)
 
     # Create config/config.yaml
-    config_dir = dummy_workflow_path / "config"
-    config_dir.mkdir()
-    config_file = config_dir / "config.yaml"
+    (dummy_workflow_path / "config").mkdir()
+    config_file = dummy_workflow_path / "config" / "config.yaml"
     
-    config_content = {"message": "default message"}
+    config_content = {"message": "default message", "threads": 1}
     with open(config_file, 'w') as f:
         yaml.dump(config_content, f)
 
-    # Create results directory
-    results_dir = dummy_workflow_path / "results"
-    results_dir.mkdir()
+    # Create results directory for output
+    (dummy_workflow_path / "results").mkdir(exist_ok=True)
 
     yield {
         "workflow_name": workflow_name,
         "workflow_path": str(dummy_workflow_path),
-        "output_file": str(results_dir / "output.txt"),
-        "config_file": str(config_file),
-        "workflows_dir": workflows_dir,
+        "output_file": "results/output.txt",
+        "workflows_dir": str(workflows_dir),
     }
 
-    # Teardown: Clean up the dummy workflow directory
-    try:
-        shutil.rmtree(dummy_workflow_path)
-    except Exception as e:
-        print(f"Warning: Failed to clean up dummy workflow {dummy_workflow_path}: {e}")
+    # Teardown
+    shutil.rmtree(temp_snakebase)
 
 def test_run_snakemake_workflow_basic(dummy_workflow_setup):
-    """测试 run_workflow 函数的基本功能"""
-    workflow_name = dummy_workflow_setup["workflow_name"]
-    output_file = dummy_workflow_setup["output_file"]
-    workflows_dir = dummy_workflow_setup["workflows_dir"]
+    """Tests the basic functionality of the refactored run_workflow function."""
+    output_file_path = Path(dummy_workflow_setup["workflow_path"]) / dummy_workflow_setup["output_file"]
 
     result = run_workflow(
-        workflow_name=workflow_name,
-        inputs=None,
-        outputs=[output_file],  # Specify output to trigger the rule
-        params={},
-        threads=1,
-        workflows_dir=workflows_dir,
+        workflow_name=dummy_workflow_setup["workflow_name"],
+        workflows_dir=dummy_workflow_setup["workflows_dir"],
+        config_overrides={},  # No overrides
+        target_rule=dummy_workflow_setup["output_file"],
     )
 
     assert result['status'] == 'success'
-    assert os.path.exists(output_file)
-    with open(output_file, 'r') as f:
+    assert output_file_path.exists()
+    with open(output_file_path, 'r') as f:
         content = f.read().strip()
         assert content == "default message"
 
-def test_run_snakemake_workflow_with_params(dummy_workflow_setup):
-    """测试 run_workflow 函数传递参数并修改配置"""
-    workflow_name = dummy_workflow_setup["workflow_name"]
-    output_file = dummy_workflow_setup["output_file"]
-    workflows_dir = dummy_workflow_setup["workflows_dir"]
-    
-    new_message = "hello from params"
+def test_run_snakemake_workflow_with_config_override(dummy_workflow_setup):
+    """Tests that run_workflow correctly applies config overrides."""
+    output_file_path = Path(dummy_workflow_setup["workflow_path"]) / dummy_workflow_setup["output_file"]
+    new_message = "hello from override"
 
     result = run_workflow(
-        workflow_name=workflow_name,
-        inputs=None,
-        outputs=[output_file],
-        params={"message": new_message},  # Override message via params
-        threads=1,
-        workflows_dir=workflows_dir,
+        workflow_name=dummy_workflow_setup["workflow_name"],
+        workflows_dir=dummy_workflow_setup["workflows_dir"],
+        config_overrides={"message": new_message},  # Override message
+        target_rule=dummy_workflow_setup["output_file"],
     )
 
     assert result['status'] == 'success'
-    assert os.path.exists(output_file)
-    with open(output_file, 'r') as f:
+    assert output_file_path.exists()
+    with open(output_file_path, 'r') as f:
         content = f.read().strip()
         assert content == new_message
-
-def test_lint_snakemake_workflow_template():
-    """Tests linting the snakemake-workflow-template workflow."""
-    workflows_dir = os.path.expanduser(os.environ.get("SNAKEBASE_DIR", "~/snakebase")) + "/snakemake-workflows"
-    if not os.path.exists(workflows_dir):
-        workflows_dir = "./snakebase/snakemake-workflows"
-    
-    result = run_workflow(
-        workflow_name="snakemake-workflow-template",
-        inputs=None,
-        outputs=None,
-        params={},
-        threads=1,
-        extra_snakemake_args="--lint",
-        workflows_dir=workflows_dir,
-    )
-
-    assert result['status'] == 'success'

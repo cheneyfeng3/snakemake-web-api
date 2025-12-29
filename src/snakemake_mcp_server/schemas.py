@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Union, Dict, List, Optional, Any
 from datetime import datetime
 from enum import Enum
@@ -47,7 +47,7 @@ class PlatformRunParams(BaseModel):
     group: Optional[str] = None
 
 
-# Define Pydantic models for request/response
+# Define Pydantic models for request/response for Wrappers
 class InternalWrapperRequest(UserProvidedParams, PlatformRunParams):
     wrapper_id: str
     workdir: Optional[str] = None
@@ -57,11 +57,10 @@ class UserWrapperRequest(UserProvidedParams):
     wrapper_id: str
 
 
-class InternalWorkflowRequest(UserProvidedParams, PlatformRunParams):
+# Define Pydantic models for request/response for Workflows
+class UserWorkflowRequest(BaseModel):
     workflow_id: str
-    extra_snakemake_args: str = ""
-    container: Optional[str] = None  # This is different from container_img
-    shadow: Optional[str] = None
+    config: dict = Field(default_factory=dict)
     target_rule: Optional[str] = None
 
 
@@ -79,7 +78,7 @@ class DemoCall(BaseModel):
     payload: UserWrapperRequest
 
 
-# WrapperInfo 类字段
+# --- Wrapper Metadata Schemas ---
 class WrapperInfo(BaseModel):
     name: str
     description: Optional[str] = None
@@ -89,27 +88,15 @@ class WrapperInfo(BaseModel):
 
 
 class WrapperMetadata(BaseModel):
-    # ID 字段
     id: str
-
-    # WrapperInfo 类字段
     info: WrapperInfo
-
-    # UserProvidedParams 类字段
     user_params: UserProvidedParams
-
-    # PlatformRunParams 类字段
     platform_params: PlatformRunParams
 
 
 class WrapperMetadataResponse(BaseModel):
-    # ID 字段
     id: str
-
-    # WrapperInfo 类字段
     info: WrapperInfo
-
-    # UserProvidedParams 类字段
     user_params: UserProvidedParams
 
 
@@ -123,3 +110,23 @@ class DemoCaseResponse(BaseModel):
 class ListWrappersResponse(BaseModel):
     wrappers: List[WrapperMetadataResponse]
     total_count: int
+
+
+# --- Workflow Metadata Schemas ---
+class WorkflowInfo(BaseModel):
+    name: str
+    description: Optional[str] = None
+    authors: Optional[List[str]] = None
+
+
+class WorkflowMetaResponse(BaseModel):
+    id: str
+    info: Optional[WorkflowInfo] = None
+    default_config: dict
+    params_schema: Optional[dict] = None
+
+
+class WorkflowDemo(BaseModel):
+    name: str
+    description: Optional[str] = None
+    config: dict  # The config override for this demo

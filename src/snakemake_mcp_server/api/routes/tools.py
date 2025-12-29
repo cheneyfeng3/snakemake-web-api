@@ -13,7 +13,7 @@ def load_wrapper_metadata(wrappers_dir: str) -> List[WrapperMetadata]:
     """
     Load metadata for all available wrappers from the pre-parsed cache.
     """
-    cache_dir = Path.home() / ".swa" / "parser"
+    cache_dir = Path.home() / ".swa" / "cache" / "wrappers"
     if not cache_dir.exists():
         logger.warning(f"Parser cache directory not found at '{cache_dir}'. No tools will be loaded. Run 'swa parse' to generate the cache.")
         return []
@@ -77,7 +77,7 @@ async def get_tool_meta(tool_name: str, request: Request):
     """
     logger.info(f"Received request to get metadata for tool from cache: {tool_name}")
 
-    cache_dir = Path.home() / ".swa" / "parser"
+    cache_dir = Path.home() / ".swa" / "cache" / "wrappers"
     cache_file = cache_dir / f"{tool_name}.json"
 
     if not cache_file.exists():

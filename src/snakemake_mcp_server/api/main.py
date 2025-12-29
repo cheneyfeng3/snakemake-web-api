@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 import logging
-from .routes import health, demo, tools, tool_processes, workflow_processes, demos
+from .routes import health, demo, tools, tool_processes, workflow_processes, workflows
 
 def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI:
     """
@@ -22,6 +22,6 @@ def create_native_fastapi_app(wrappers_path: str, workflows_dir: str) -> FastAPI
     app.include_router(tools.router)
     app.include_router(tool_processes.router)
     app.include_router(workflow_processes.router)
-    app.include_router(demos.router)
+    app.include_router(workflows.router)
 
     return app

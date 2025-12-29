@@ -1,125 +1,97 @@
 import subprocess
 import tempfile
 import os
-import textwrap
 import logging
 from pathlib import Path
-from typing import Union, Dict, List, Optional
+from typing import Dict, Optional
 import yaml
+import collections.abc
 
 logger = logging.getLogger(__name__)
 
-def _validate_workflow_inputs(workflow_name: str, 
-                             inputs: Optional[Union[Dict, List]] = None, 
-                             outputs: Optional[Union[Dict, List]] = None, 
-                             params: Optional[Dict] = None,
-                             config_content: Optional[Dict] = None) -> None:
-    """Validate input parameters for workflow execution."""
-    if not workflow_name or not isinstance(workflow_name, str):
-        raise ValueError("workflow_name must be a non-empty string")
-    
-    # Add more specific validation for inputs, outputs, params if needed
-
-def run_workflow(workflow_name: str,
-                 inputs: Optional[Union[Dict, List]] = None,
-                 outputs: Optional[Union[Dict, List]] = None,
-                 params: Optional[Dict] = None,
-                 threads: int = 1,
-                 log: Optional[Union[Dict, List]] = None,
-                 extra_snakemake_args: str = "",
-                 container: Optional[str] = None,
-                 benchmark: Optional[str] = None,
-                 resources: Optional[Dict] = None,
-                 shadow: Optional[str] = None,
-                 target_rule: Optional[str] = None,
-                 workflows_dir: str = ".", # Added workflows_dir parameter
-                 timeout: int = 600) -> Dict:
+def deep_merge(source, destination):
     """
-    Executes a Snakemake workflow by modifying its config and running it.
+    Recursively merges source dict into destination dict.
+    """
+    for key, value in source.items():
+        if isinstance(value, collections.abc.Mapping):
+            destination[key] = deep_merge(value, destination.get(key, {}))
+        else:
+            destination[key] = value
+    return destination
+
+def run_workflow(
+    workflow_name: str,
+    workflows_dir: str,
+    config_overrides: dict,
+    target_rule: Optional[str] = None,
+    timeout: int = 3600,
+) -> Dict:
+    """
+    Executes a Snakemake workflow by merging a config object with the base
+    config.yaml and running Snakemake with a temporary config file.
     """
     temp_config_path = None
     try:
-        _validate_workflow_inputs(workflow_name, inputs, outputs, params)
+        if not workflow_name or not isinstance(workflow_name, str):
+            raise ValueError("workflow_name must be a non-empty string")
 
-        # Determine workflow base directory
-        # Now using the passed parameter instead of environment variable
         workflow_base_path = Path(workflows_dir)
-
         workflow_path = workflow_base_path / workflow_name
         if not workflow_path.exists():
             raise FileNotFoundError(f"Workflow not found at: {workflow_path}")
         
-        # Convert to absolute path to avoid resolution issues
         workflow_path = workflow_path.resolve()
         
         main_snakefile = workflow_path / "workflow" / "Snakefile"
         if not main_snakefile.exists():
-            raise FileNotFoundError(f"Main Snakefile not found for workflow at: {main_snakefile}")
+            # Fallback for workflows that might have Snakefile at the root
+            main_snakefile_root = workflow_path / "Snakefile"
+            if not main_snakefile_root.exists():
+                raise FileNotFoundError(f"Main Snakefile not found for workflow at: {main_snakefile} or {main_snakefile_root}")
+            main_snakefile = main_snakefile_root
 
         original_config_path = workflow_path / "config" / "config.yaml"
         if not original_config_path.exists():
-            logger.warning(f"Original config.yaml not found for workflow at: {original_config_path}. Creating a new one.")
-            original_config = {}
+            logger.warning(f"Original config.yaml not found for workflow at: {original_config_path}. Starting with an empty config.")
+            base_config = {}
         else:
             with open(original_config_path, 'r') as f:
-                original_config = yaml.safe_load(f)
+                base_config = yaml.safe_load(f) or {}
         
-        # Create a temporary config file by merging original with provided params
-        merged_config = original_config.copy()
-        if params:
-            merged_config.update(params)
-        
-        # Handle inputs and outputs - this is a simplification and might need more sophisticated mapping
-        if inputs:
-            merged_config["inputs"] = inputs
-        if outputs:
-            merged_config["outputs"] = outputs
+        # Deep merge the user's config overrides into the base config
+        merged_config = deep_merge(config_overrides, base_config)
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as tmp_config_file:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False, dir=workflow_path) as tmp_config_file:
             yaml.dump(merged_config, tmp_config_file)
             temp_config_path = Path(tmp_config_file.name)
         
-        logger.debug(f"Generated temporary config at: {temp_config_path}")
+        logger.debug(f"Generated temporary config for run: {temp_config_path}")
 
-        # Build Snakemake command
+        # Build a simple, robust Snakemake command
         command = [
             "snakemake", 
             "--snakefile", str(main_snakefile),
             "--configfile", str(temp_config_path),
-            "--use-conda", 
-            "--cores", str(threads),
-            "--printshellcmds"
+            "--use-conda",
+            "--nocolor",
+            "--printshellcmds",
+            # All execution parameters like --cores, --resources must now be
+            # handled by the workflow itself, using the config object.
         ]
         
         if target_rule:
             command.append(target_rule)
-        else:
-            # If no target rule, Snakemake will run the default target
-            pass
 
-        # Add extra parameters
-        if extra_snakemake_args:
-            command.extend(extra_snakemake_args.split())
-        if container:
-            command.extend(["--container-image", container])
-        if benchmark:
-            command.extend(["--benchmark-file", benchmark])
-        if resources:
-            for key, value in resources.items():
-                command.extend(["--resources", f"{key}={value}"])
-        if shadow:
-            command.extend(["--shadow-prefix", shadow]) # Snakemake uses --shadow-prefix for shadow modes
-
-        logger.info(f"Executing command: {' '.join(command)}")
+        logger.info(f"Executing command: {' '.join(command)} in {workflow_path}")
         
-        # Execute command - use absolute path for working directory
         result = subprocess.run(
             command, 
             check=True, 
             capture_output=True, 
             text=True,
             timeout=timeout,
-            cwd=workflow_path # This is now an absolute path
+            cwd=workflow_path
         )
         
         return {
@@ -154,7 +126,7 @@ def run_workflow(workflow_name: str,
         }
     
     except Exception as e:
-        error_msg = f"Unexpected error: {str(e)}"
+        error_msg = f"An unexpected error occurred: {str(e)}"
         logger.error(error_msg)
         return {
             "status": "failed",
@@ -165,7 +137,6 @@ def run_workflow(workflow_name: str,
         }
     
     finally:
-        # Clean up temporary config file
         if temp_config_path and temp_config_path.exists():
             try:
                 os.remove(temp_config_path)
