@@ -216,45 +216,47 @@ SWA looks for the profile specified by `--workflow-profile` in the following ord
 3.  **System Default**: Snakemake's standard paths (e.g., `~/.config/snakemake/`)
 
 #### Demo Profile: `k3s-s3`
-To run workflows on Kubernetes with S3 storage, create a directory `~/.swa/profiles/k3s-s3/` and add a `config.yaml` file:
+To run workflows on Kubernetes with S3 storage, create a directory `~/.swa/profiles/k3s-s3/` and add a `config.yaml` file.
+
+**Note on Stability**: We highly recommend a custom image with pre-installed storage plugins to avoid slow runtime `pip install` steps that can cause timeouts.
 
 ```yaml
 # ~/.swa/profiles/k3s-s3/config.yaml
-# 1. 使用 K3s (Kubernetes) 执行器
+
+# 1. Execution Strategy
 executor: kubernetes
+jobs: 100
 
-# 2. 设置默认的 S3 存储提供商
+# 2. Remote Storage (S3/MinIO)
 default-storage-provider: s3
-default-storage-prefix: s3://xxxx/
+default-storage-prefix: s3://my-bucket/snakemake-runs/
 
-# 3. 将 S3/MinIO 凭证和服务器地址注入到 K3s Pods 中
-#    Snakemake 会从您当前的 shell 环境中读取这些变量
+# 3. Environment Forwarding
 envvars:
   - AWS_ACCESS_KEY_ID
   - AWS_SECRET_ACCESS_KEY
   - AWS_ENDPOINT_URL
 
-# 4. 设置默认作业数
-jobs: 100
-latency-wait: 60
-
-# 5. 使用 Conda 环境
+# 4. Container & Software
 use-conda: true
-conda-frontend: mamba
+# Recommended: Use a custom image with snakemake-storage-plugin-s3 pre-installed
+container-image: my-registry/snakemake-s3:latest 
 
-# 6. 其他配置
+# 5. Advanced Kubernetes Settings
+kubernetes-namespace: default
+# Recommended for debugging: keeps pods/jobs after failure so you can inspect logs
+kubernetes-omit-job-cleanup: true
+# Optional: Use a custom service account
+# kubernetes-service-account-name: snakemake-sa
+
+# 6. Global Stability Settings
+# Use global retries to handle transient failures in K8s pods
+retries: 3
+
+# 7. Runtime Tweaks
+latency-wait: 60
 rerun-incomplete: true
-rerun-triggers: mtime
-show-failed-logs: true
 printshellcmds: true
-keep-going: false
-
-# 7. Kubernetes Pod 配置
-# 指定 Pod 使用的容器镜像（需要包含 conda/mamba 和基础工具）
-container-image: snakemake/snakemake:v9.11.2
-
-storage-s3-endpoint-url: http://<s3-endpoint-ip>:20480
-storage-s3-max-requests-per-second: 100
 ```
 
 ### 6. Monitor Workflow Progress
@@ -263,6 +265,8 @@ Poll the status of your submitted job:
 curl http://localhost:8082/workflow-processes/{job_id}
 ```
 Status can be `accepted`, `running`, `completed`, or `failed`.
+
+Detailed troubleshooting can be found in the [Troubleshooting Guide](TROUBLESHOOTING.md).
 
 ## Running the Server
 

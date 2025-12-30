@@ -42,33 +42,48 @@ def setup_demo_workdir(demo_workdir: str, workdir: str):
 
 def prepare_isolated_workdir(source_dir: str, execution_dir: str):
     """
-    Symlinks all top-level files and directories from source_dir to execution_dir,
-    excluding .snakemake and .git directories. This creates an isolated environment 
-    for Snakemake execution and avoids interference with source tracking.
+    Creates an isolated environment by recreating the directory structure.
+    Small files (source code, configs) are copied to ensure they are included 
+    in Snakemake's source archive. Large files (data) are symlinked.
     """
     source_path = Path(source_dir)
     exec_path = Path(execution_dir)
     exec_path.mkdir(parents=True, exist_ok=True)
 
-    logger.debug(f"Isolating workflow: symlinking {source_path} -> {exec_path}")
+    logger.debug(f"Isolating workflow: recreating structure and preparing files {source_path} -> {exec_path}")
     
-    for item in source_path.iterdir():
-        # Exclude internal Snakemake data and Git metadata to avoid conflicts and archiving bugs
-        if item.name in [".snakemake", ".git"]:
-            continue
+    # Exclude internal/metadata directories
+    ignored = {".snakemake", ".git", "__pycache__"}
+
+    for root, dirs, files in os.walk(source_path):
+        # Skip ignored directories
+        dirs[:] = [d for d in dirs if d not in ignored]
         
-        target = exec_path / item.name
-        if not target.exists():
-            try:
-                # Create a symlink to the original file/directory
-                os.symlink(item.resolve(), target)
-            except Exception as e:
-                logger.error(f"Failed to symlink {item} to {target}: {e}")
-                # Fallback to copy if symlink fails
-                if item.is_dir():
-                    shutil.copytree(item, target, symlinks=True)
-                else:
-                    shutil.copy2(item, target)
+        # Calculate relative path from source root
+        rel_root = Path(root).relative_to(source_path)
+        dest_root = exec_path / rel_root
+        
+        # Ensure the destination directory exists
+        dest_root.mkdir(parents=True, exist_ok=True)
+        
+        for file in files:
+            source_file = Path(root) / file
+            dest_file = dest_root / file
+            
+            if not dest_file.exists():
+                try:
+                    # Heuristic: Copy small files (source code), symlink large files (data)
+                    # 1MB is a safe threshold for source code/config files.
+                    if source_file.stat().st_size < 1024 * 1024:
+                        shutil.copy2(source_file, dest_file)
+                        logger.debug(f"Copied source file: {rel_root}/{file}")
+                    else:
+                        os.symlink(source_file.resolve(), dest_file)
+                        logger.debug(f"Symlinked data file: {rel_root}/{file}")
+                except Exception as e:
+                    logger.error(f"Failed to process {source_file}: {e}")
+                    # Fallback to copy if anything fails
+                    shutil.copy2(source_file, dest_file)
 
 
 async def sync_workdir_to_s3(workdir: str, s3_prefix: str):
@@ -100,6 +115,7 @@ async def sync_workdir_to_s3(workdir: str, s3_prefix: str):
             )
 
             workdir_path = Path(workdir)
+            files_uploaded = 0
             
             # Walk through the directory and upload files.
             # followlinks=True is CRITICAL here because the isolation dir uses symlinks.
@@ -115,12 +131,16 @@ async def sync_workdir_to_s3(workdir: str, s3_prefix: str):
                     rel_path = local_path.relative_to(workdir_path)
                     s3_key = os.path.join(prefix, str(rel_path))
                     
-                    logger.debug(f"Uploading {local_path} -> s3://{bucket_name}/{s3_key}")
+                    # For symlinks, we want to upload the target's content
+                    source_to_upload = str(local_path.resolve()) if local_path.is_symlink() else str(local_path)
                     
-                    # Use upload_file which handles large files efficiently
-                    s3_client.upload_file(str(local_path), bucket_name, s3_key)
+                    logger.debug(f"Uploading: {rel_path} -> s3://{bucket_name}/{s3_key}")
+                    
+                    # upload_file automatically handles the path correctly
+                    s3_client.upload_file(source_to_upload, bucket_name, s3_key)
+                    files_uploaded += 1
             
-            logger.info(f"S3 pre-provisioning complete for {s3_prefix}")
+            logger.info(f"S3 pre-provisioning complete. Uploaded {files_uploaded} files to {s3_prefix}")
             
         except Exception as e:
             logger.error(f"Error during S3 pre-provisioning with boto3: {e}")
