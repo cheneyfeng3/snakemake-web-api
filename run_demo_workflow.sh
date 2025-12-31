@@ -12,7 +12,7 @@ unset http_proxy https_proxy # Bypass proxy for localhost connections
 # --- Configuration ---
 API_SERVER_URL="http://127.0.0.1:8082"
 MAX_ATTEMPTS=600 # 10 minutes timeout for workflow polling (workflows usually take longer)
-WORKFLOW_ID=${1:-"rna-seq-star-deseq2"}
+WORKFLOW_ID=${1:-"StainedGlass"}
 
 # --- Step 1: Fetch demo case from /demos/workflows endpoint ---
 echo "--- Step 1: Fetching demo case for $WORKFLOW_ID ---"

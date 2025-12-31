@@ -10,6 +10,7 @@
    - **使用 `storage()` 函数**：在 `Snakefile` 中，所有指向远程对象存储（如S3）的输入/输出路径，都**必须**用内置的 `storage()` 函数包裹。这会显式告知 Snakemake 调用存储插件来处理文件，从而避免 `MissingInputException`。Snakemake **不会** 自动处理未标记的 S3 路径字符串。
    - **路径策略**：`config.yaml` 中路径的定义可以灵活选择：
        - **策略A（相对路径）**：`fasta: inputs/small.fasta`。这需要你在远程 profile 中定义 `default-storage-prefix` (如 `s3://my-bucket/`)，Snakemake 会将两者拼接。
+       **严重警告**：如果宿主机本地存在此相对路径文件（如 `inputs/small.fasta`），Snakemake 可能会忽略 `default-storage-prefix` 而强制使用本地 `fs` 插件，导致 Kubernetes Pod 因无本地文件而报错 `FileNotFoundError`。在这种情况下，**必须**使用策略B（全路径）。
        - **策略B（完整URI）**：`fasta: s3://my-bucket/inputs/small.fasta`。这种方式更明确，不强制要求 `default-storage-prefix`。
    无论哪种策略，`Snakefile` 中的 `storage()` 包裹都是必需的。
 
@@ -33,6 +34,7 @@
     *   MissingInput：确认S3布局匹配（用`mc ls`检查），并确保在Snakefile中使用了`storage()`。
     *   Flags错误：temp()等flags包裹expand()外部。
     *   上传失败：Git rm缺失文件。
+    *   **本地文件陷阱**：宿主机存在相对路径的输入文件会导致Snakemake误判为本地存储。解决方法：在config中使用 `s3://` 全路径强制指定存储提供商。
 
 ## Snakefile编写指南
 - **头部**：导入必要模块，确保最小版本。
