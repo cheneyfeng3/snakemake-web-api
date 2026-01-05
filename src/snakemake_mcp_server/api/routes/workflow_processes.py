@@ -62,7 +62,15 @@ async def create_workflow_process(
     """
     logger.info(f"Received request to run workflow: {request.workflow_id}")
 
-    job_id = str(uuid.uuid4())
+    # Use provided job_id or generate a new one
+    job_id = request.job_id or str(uuid.uuid4())
+    
+    # Check if job already exists and is not in a final state
+    if job_id in job_store:
+        existing_job = job_store[job_id]
+        if existing_job.status in [JobStatus.ACCEPTED, JobStatus.RUNNING]:
+            raise HTTPException(status_code=409, detail=f"Job {job_id} is already in progress.")
+    
     log_url = f"/workflow-processes/{job_id}/log"
     job = Job(
         job_id=job_id, 

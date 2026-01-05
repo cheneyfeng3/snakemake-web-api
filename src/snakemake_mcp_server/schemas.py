@@ -69,6 +69,7 @@ class UserWorkflowRequest(BaseModel):
     cores: Optional[Union[int, str]] = "all"
     use_conda: bool = True
     use_cache: bool = False
+    job_id: Optional[str] = None
 
 
 class SnakemakeResponse(BaseModel):

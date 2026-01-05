@@ -73,12 +73,16 @@ async def run_workflow(
         else:
             log_file = None
 
-        # Build MINIMAL command
+        # Build MINIMAL command with explicit resource limits
         command = [
             "snakemake", 
             "--cores", str(cores),
-            "--nocolor",
-            "--printshellcmds",
+            "--default-resources", "mem_mb=40960", "disk_mb=102400",
+            "--shared-fs-usage", "none",
+            "--software-deployment-method", "conda",
+            "--scheduler", "greedy",
+            "--latency-wait", "300",
+            "--max-status-checks-per-second", "0.01",
         ]
 
         if workflow_profile:
