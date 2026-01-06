@@ -67,8 +67,6 @@ class UserWorkflowRequest(BaseModel):
     config: dict = Field(default_factory=dict)
     target_rule: Optional[str] = None
     cores: Optional[Union[int, str]] = "all"
-    use_conda: bool = True
-    use_cache: bool = False
     job_id: Optional[str] = None
 
 

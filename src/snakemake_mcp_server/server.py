@@ -18,14 +18,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-try:
-    from .wrapper_runner import run_wrapper
-    from .workflow_runner import run_workflow
-except ImportError as e:
-    logger.error(f"Could not import runner module: {e}")
-    sys.exit(1)
-
 # The native FastAPI implementation with proper Pydantic models
 # is now in the fastapi_app.py file to maintain consistency
 # and follow proper module separation.
