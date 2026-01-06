@@ -81,7 +81,9 @@ async def run_workflow(
             "--shared-fs-usage", "none",
             "--software-deployment-method", "conda",
             "--scheduler", "greedy",
+            "--latency-wait", "600",
             "--notemp",
+            "--retries", "5",
         ]
 
         if workflow_profile:
