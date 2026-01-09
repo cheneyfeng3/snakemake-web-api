@@ -28,7 +28,7 @@ async def run_workflow(
     config_overrides: dict,
     target_rule: Optional[str] = None,
     cores: Union[int, str] = "all",
-    timeout: int = 3600,
+    timeout: int = 86400,
     job_id: Optional[str] = None,
     workdir: Optional[str] = None,
     workflow_profile: Optional[str] = None,
@@ -78,7 +78,7 @@ async def run_workflow(
             "--default-resources", "mem_mb=40960", "disk_mb=102400",
             "--shared-fs-usage", "none",
             "--scheduler", "greedy",
-            "--latency-wait", "600",
+            "--latency-wait", "1200",
             "--notemp",
             "--retries", "5",
         ]
