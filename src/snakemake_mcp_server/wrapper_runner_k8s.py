@@ -11,18 +11,15 @@ from .schemas import InternalWrapperRequest
 
 logger = logging.getLogger(__name__)
 
-async def run_wrapper(
+async def run_wrapper_in_k8s(
     request: InternalWrapperRequest,
     timeout: int = 600,
-    job_id: Optional[str] = None,
 ) -> Dict:
     """
     Executes a single Snakemake wrapper by generating a Snakefile and running
     Snakemake via the command line in a non-blocking, asynchronous manner.
-    Outputs are redirected to a log file for real-time access.
     """
     snakefile_path = None  # Initialize to ensure it's available in finally block
-    log_file_path = None
 
     # Infer wrappers_path from environment variable
     snakebase_dir = os.environ.get("SNAKEBASE_DIR")
@@ -86,17 +83,8 @@ async def run_wrapper(
             logger.debug(f"Generated Snakefile content:\n{snakefile_content}")
             tmp_snakefile.write(snakefile_content)
 
-        # 3. Build and run Snakemake command using asyncio.subprocess
+        # 3. Build and run Snakemake command using Kubernetes executor
         
-        # Setup real-time logging to file
-        if job_id:
-            log_dir = Path.home() / ".swa" / "logs"
-            log_dir.mkdir(parents=True, exist_ok=True)
-            log_file_path = log_dir / f"{job_id}.log"
-            log_file = open(log_file_path, 'w')
-        else:
-            log_file = None
-
         # Attempt to unlock the directory first to clear any stale locks
         unlock_cmd = [
             "snakemake",
@@ -110,24 +98,40 @@ async def run_wrapper(
             cwd=execution_workdir
         )
         await unlock_proc.wait()
+        PVC_NAME = os.environ.get("SNAKEMAKE_KUBERNETES_PERSISTENT_VOLUME_CLAIM")  # 对应 yaml 中的 PVC 名称
+        PVC_MOUNT_PATH = os.environ.get("SNAKEMAKE_KUBERNETES_PVC_MOUNT_PATH")  #
 
+        max_jobs = os.environ.get("SNAKEMAKE_MAX_JOBS", "10")
         cmd_list = [
             "snakemake",
-            "--snakefile", str(snakefile_path),
+            "--snakefile", str(snakefile_path),            
+            "--executor", "kubernetes",  # Use Kubernetes executor
+            #"--directory", request.workdir,                     # ← 工作目录（在共享路径下）
+            "--jobs", max_jobs,
+            "--logger", "supabase",
+            # "--logger-supabase-name=\"first_test\"" 
+            # "--logger-supabase-tags=\"tagA,tagB,tagC\""
+            "--logger-supabase-taskid=\"tagA,tagB,tagC\""
+
+            "--default-storage-provider", "fs",
+            "--default-storage-prefix", request.workdir + "/",
+            "--kubernetes-namespace", os.environ.get("SNAKEMAKE_KUBERNETES_NAMESPACE"),  # 与 k8s_resources.yaml 中的 namespace 一致
+            "--kubernetes-persistent-volumes", f"{PVC_NAME}:{PVC_MOUNT_PATH}",  # 与 PVC 名称一致
+            "--kubernetes-service-account-name", os.environ.get("SNAKEMAKE_KUBERNETES_SERVICE_ACCOUNT"), # 与服务账户一致
+            "--container-image", os.environ.get("SNAKEMAKE_KUBERNETES_IMAGE", "docker.1ms.run/snakemake/snakemake:latest"),  # 与 k8s_resources.yaml 中的 container 一致
+            # "--kubernetes-omit-job-cleanup",
             "--cores", str(request.threads) if request.threads is not None else "1",
             "--nocolor",
-            "--logger", "supabase",
             "--forceall",  # Force execution since we are in a temp/isolated context
             "--wrapper-prefix", str(abs_wrappers_path) + os.sep # Add wrapper prefix with trailing slash
         ]
 
-        if request.use_cache:
-            cmd_list.append("--cache")
-
+        
         if resolved_conda_env_path_for_snakefile: # Use the resolved path to decide if --use-conda is needed
             cmd_list.append("--use-conda")
             # Add conda prefix for shared environments
-            conda_prefix = os.environ.get("SNAKEMAKE_CONDA_PREFIX", os.path.expanduser("~/.snakemake/conda"))
+            conda_prefix = os.path.join(os.environ.get("SHARED_ROOT"), ".snakemake/conda")
+            # conda_prefix = os.environ.get("SNAKEMAKE_CONDA_PREFIX", os.path.expanduser("~/.snakemake/conda"))
             cmd_list.extend(["--conda-prefix", conda_prefix])
 
         # Add targets if they exist
@@ -141,43 +145,32 @@ async def run_wrapper(
             
             for item in output_values:
                 if isinstance(item, dict) and item.get('is_directory'):
-                    targets.append(item.get('path'))
+                    targets.append(os.path.join(request.workdir, item.get('path')))
                 else:
-                    targets.append(str(item))
+                    targets.append(os.path.join(request.workdir, str(item)))
             
-            cmd_list.extend(targets)
+        #    cmd_list.extend(targets)
 
-        logger.debug(f"Snakemake command list: {cmd_list}")
+        logger.debug(f"Snakemake command list with Kubernetes executor: {cmd_list}")
         process = await asyncio.create_subprocess_exec(
             *cmd_list,
-            stdout=log_file if log_file else asyncio.subprocess.PIPE,
-            stderr=log_file if log_file else asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
             cwd=execution_workdir
         )
 
-        # Register process for potential cancellation
-        if job_id:
-            from .jobs import active_processes
-            active_processes[job_id] = process
-
         try:
-            if log_file:
-                await asyncio.wait_for(process.wait(), timeout=timeout)
-                stdout = f"Logs redirected to {log_file_path}"
-                stderr = ""
-            else:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=timeout)
-                stdout = stdout_bytes.decode()
-                stderr = stderr_bytes.decode()
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
             return {"status": "failed", "stdout": "", "stderr": f"Execution timed out after {timeout} seconds.", "exit_code": -1, "error_message": f"Execution timed out after {timeout} seconds."}
-        finally:
-            if log_file:
-                log_file.close()
 
-        logger.debug(f"Snakemake exit code: {process.returncode}")
+        stdout = stdout_bytes.decode()
+        stderr = stderr_bytes.decode()
+
+        logger.debug(f"Snakemake stdout:\n{stdout}")
+        logger.debug(f"Snakemake stderr:\n{stderr}")
 
         if process.returncode == 0:
             return {"status": "success", "stdout": stdout, "stderr": stderr, "exit_code": 0}
@@ -215,7 +208,6 @@ def _generate_wrapper_snakefile(
     # Remove "master/" prefix from wrapper_name if it exists, as per user's instruction
     if wrapper_name.startswith("master/"):
         wrapper_name = wrapper_name[len("master/"):]
-
     # Inputs
     if request.inputs:
         if isinstance(request.inputs, dict):
@@ -276,15 +268,33 @@ def _generate_wrapper_snakefile(
         rule_parts.append(f"    threads: {request.threads}")
     
     # Resources
+    rule_parts.append("    resources:")
+    processed_resources = []
+
+    # 1. Add user-provided resources (if any)
     if request.resources:
-        rule_parts.append("    resources:")
-        processed_resources = []
         for k, v in request.resources.items():
             if callable(v) or (isinstance(v, str) and v == "<callable>"):
                 continue
             else:
-                processed_resources.append(f'        {k}={v},') # Added comma
+                processed_resources.append(f'        {k}={v},')
+
+    # 2. Inject container_image for Kubernetes (from request.container_img or env var)
+    container_image = None
+    if request.container_img:
+        container_image = request.container_img
+    else:
+        container_image = os.environ.get("SNAKEMAKE_KUBERNETES_IMAGE", "docker.1ms.run/snakemake/snakemake:latest")
+
+    if container_image:
+        processed_resources.insert(0, f'        container_image="{container_image}",')
+
+    # Only add resources block if there's at least container_image
+    if processed_resources:
         rule_parts.extend(processed_resources)
+    else:
+        # Remove the "resources:" line if no resources at all
+        rule_parts.pop()  # remove last "    resources:"
     
     # Priority
     if request.priority is not None:
@@ -301,10 +311,6 @@ def _generate_wrapper_snakefile(
     # Conda
     if conda_env_path_for_snakefile:
         rule_parts.append(f"    conda: '{conda_env_path_for_snakefile}'")
-    
-    # Container
-    if request.container_img:
-        rule_parts.append(f'    container: "{request.container_img}"')
     
     # Group
     if request.group:

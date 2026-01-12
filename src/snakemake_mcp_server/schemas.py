@@ -3,6 +3,7 @@ from typing import Union, Dict, List, Optional, Any
 from datetime import datetime
 from enum import Enum
 
+
 # Define new Pydantic models for async job handling
 class JobStatus(str, Enum):
     ACCEPTED = "accepted"
@@ -15,6 +16,8 @@ class Job(BaseModel):
     job_id: str
     status: JobStatus
     created_time: datetime
+    end_time: Optional[datetime] = None
+    task_run_duration: Optional[float] = None
     result: Optional[Dict] = None
     log_url: Optional[str] = None
 
@@ -34,6 +37,11 @@ class UserProvidedParams(BaseModel):
     inputs: Optional[Union[Dict, List]] = None
     outputs: Optional[Union[Dict, List]] = None
     params: Optional[Union[Dict, List]] = None
+
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
+    mcp_id: Optional[str] = None
+    task_id: Optional[str] = None
 
 
 # PlatformRunParams 用于请求和元数据存储（统一使用可选字段）
