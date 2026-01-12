@@ -116,6 +116,7 @@ async def run_wrapper(
             "--snakefile", str(snakefile_path),
             "--cores", str(request.threads) if request.threads is not None else "1",
             "--nocolor",
+            "--logger", "supabase",
             "--forceall",  # Force execution since we are in a temp/isolated context
             "--wrapper-prefix", str(abs_wrappers_path) + os.sep # Add wrapper prefix with trailing slash
         ]
