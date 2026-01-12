@@ -38,17 +38,26 @@ COPY . .
 # 同步项目依赖（基于pyproject.toml，包含刚安装的插件依赖）
 RUN uv sync --no-dev
 
-
 # 初始化snakebase目录（克隆wrappers/workflows，项目核心依赖）
 RUN mkdir -p /root/snakebase && \
-    # 关键：创建软链接，指向/app/repos下的文件（仅存一份）
-    ln -s /app/repos/snakemake-wrappers /root/snakebase/snakemake-wrappers && \
-    ln -s /app/repos/snakemake-workflows /root/snakebase/snakemake-workflows && \
-    cp -f /app/repos/snakemake-executor-plugin-kubernetes-main/snakemake_executor_plugin_kubernetes/__init__.py /app/.venv/lib/python3.12/site-packages/snakemake_executor_plugin_kubernetes/__init__.py && \
-    # 确保软链接权限正确（继承源文件权限）
-    chmod -R 755 /app/repos && \
-    # 验证软链接有效性（可选，用于构建时排查）
-    ls -l /root/snakebase/    
+    cd /root/snakebase && \
+    git clone https://github.com/snakemake/snakemake-wrappers.git && \
+    mkdir -p snakemake-workflows && \
+    # 可添加常用workflows，如rna-seq示例
+    git clone https://github.com/snakemake-workflows/rna-seq-star-deseq2 snakemake-workflows/rna-seq-star-deseq2  && \
+    mkdir -p /app/repos/snakemake-logger-plugin-supabase-main  && \
+    git clone https://github.com/snakemake/snakemake-wrappers.git snakemake-logger-plugin-supabase-main && \
+
+# 初始化snakebase目录（克隆wrappers/workflows，项目核心依赖）
+# RUN mkdir -p /root/snakebase && \
+#     # 关键：创建软链接，指向/app/repos下的文件（仅存一份）
+#     ln -s /app/repos/snakemake-wrappers /root/snakebase/snakemake-wrappers && \
+#     ln -s /app/repos/snakemake-workflows /root/snakebase/snakemake-workflows && \
+#     cp -f /app/repos/snakemake-executor-plugin-kubernetes-main/snakemake_executor_plugin_kubernetes/__init__.py /app/.venv/lib/python3.12/site-packages/snakemake_executor_plugin_kubernetes/__init__.py && \
+#     # 确保软链接权限正确（继承源文件权限）
+#     chmod -R 755 /app/repos && \
+#     # 验证软链接有效性（可选，用于构建时排查）
+#     ls -l /root/snakebase/    
 
 # 环境变量配置（项目核心）
 ENV SNAKEBASE_DIR=/root/snakebase \
