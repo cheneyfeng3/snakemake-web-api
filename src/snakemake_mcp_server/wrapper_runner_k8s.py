@@ -119,7 +119,7 @@ async def run_wrapper_in_k8s(
             "--kubernetes-persistent-volumes", f"{PVC_NAME}:{PVC_MOUNT_PATH}",  # 与 PVC 名称一致
             "--kubernetes-service-account-name", os.environ.get("SNAKEMAKE_KUBERNETES_SERVICE_ACCOUNT"), # 与服务账户一致
             "--container-image", os.environ.get("SNAKEMAKE_KUBERNETES_IMAGE", "docker.1ms.run/snakemake/snakemake:latest"),  # 与 k8s_resources.yaml 中的 container 一致
-            "--kubernetes-omit-job-cleanup",
+            # "--kubernetes-omit-job-cleanup",
             "--cores", str(request.threads) if request.threads is not None else "1",
             "--nocolor",
             "--forceall",  # Force execution since we are in a temp/isolated context
