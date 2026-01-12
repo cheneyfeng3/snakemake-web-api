@@ -1,6 +1,0 @@
-name: supabase
-version: 0.1.0
-description: Snakemake logger plugin that sends logs to Supabase
-logger:
-  handler: snakemake_logger_plugin_supabase:LogHandler
-  settings: snakemake_logger_plugin_supabase:LogHandlerSettings
