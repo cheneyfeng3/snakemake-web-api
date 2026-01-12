@@ -1,0 +1,82 @@
+# k8s-resources.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: snakemake
+---
+# 定义 PV（持久卷）
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: snakemake-pv
+  namespace: snakemake
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/juicefs/bdbe/snakemake
+    type: DirectoryOrCreate  # 如果目录不存在则创建
+ 
+---
+# 定义 PVC（持久卷声明）
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: snakemake-workspace
+  namespace: snakemake
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  # 指定使用我们创建的 PV
+  volumeName: snakemake-pv
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: snakemake-executor
+  namespace: snakemake
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: snakemake-executor-role
+  namespace: snakemake
+rules:
+- apiGroups: [""]
+  resources:
+  - pods
+  - pods/log
+  - services
+  - configmaps
+  - persistentvolumeclaims
+  - secrets
+  verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+- apiGroups: ["batch"]
+  resources:
+  - jobs
+  - jobs/status 
+  verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: snakemake-executor-rolebinding
+  namespace: snakemake
+subjects:
+- kind: ServiceAccount
+  name: snakemake-executor
+  namespace: snakemake
+roleRef:
+  kind: Role
+  name: snakemake-executor-role
+  apiGroup: rbac.authorization.k8s.io
+
+
+

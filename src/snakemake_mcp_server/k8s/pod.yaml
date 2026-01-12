@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  namespace: snakemake
+  name: debug-snakemake
+  labels:
+    app: snakemake
+spec:
+  restartPolicy: Never
+  serviceAccountName: snakemake-executor
+  nodeSelector: {}
+  containers:
+    - name: snakemake
+      image: docker.1ms.run/snakemake/snakemake:latest
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          echo "Debug pod ready. Run your snakemake command manually.";
+          tail -f /dev/null
+      workingDir: /mnt/juicefs/bdbe/snakemake/9bb2cfb2-39cc-47b5-8f59-11a8f17ec863/
+      resources:
+        requests:
+          cpu: "950m"
+      volumeMounts:
+        - name: snakemake-workspace
+          mountPath: /mnt/juicefs/bdbe/snakemake
+  volumes:
+    - name: snakemake-workspace
+      persistentVolumeClaim:
+        claimName: snakemake-workspace
